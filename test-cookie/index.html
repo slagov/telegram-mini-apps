@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Cookie Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      background: #f9f9f9;
+      font-family: 'Arial Rounded MT Bold', Arial, sans-serif;
+      padding: 0;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .container {
+      margin-top: 8vh;
+      width: 100%;
+      max-width: 400px;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+      align-items: stretch;
+    }
+    button {
+      padding: 1.2em 0.7em;
+      font-size: 1.4em;
+      font-weight: 600;
+      background: #34b7f1;
+      color: white;
+      border: none;
+      border-radius: 13px;
+      box-shadow: 0 4px 16px rgba(52,183,241,0.10);
+      margin-bottom: 0;
+      transition: background 0.15s;
+      cursor: pointer;
+      width: 100%;
+      outline: none;
+      touch-action: manipulation;
+    }
+    button:active {
+      background: #2893c6;
+    }
+    .cookie-display {
+      margin-top: 0.5em;
+      padding: 1em 0.5em;
+      min-height: 2em;
+      font-size: 1.15em;
+      background: #fff;
+      border-radius: 7px;
+      border: 1px solid #e2e2e2;
+      word-break: break-all;
+      color: #444;
+      text-align: left;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .hint {
+      text-align: center;
+      font-size: 1em;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <button onclick="setCookie()">Установить cookie</button>
+    <button onclick="showCookies()">Показать cookie</button>
+    <div class="cookie-display" id="cookieDisplay" aria-live="polite"></div>
+    <div class="hint">Для Telegram Mini Apps<br>— удобно нажимать пальцем 🙂</div>
+  </div>
+  <script>
+    function setCookie() {
+      var date = new Date();
+      date.setDate(date.getDate() + 1);
+      document.cookie = "session=cookie-for-testing; path=/; expires=" + date.toUTCString();
+      alert("Cookie 'session' установлен!");
+    }
+
+    function showCookies() {
+      const cookies = document.cookie || '(Нет cookies)';
+      document.getElementById('cookieDisplay').textContent = cookies;
+    }
+  </script>
+</body>
+</html>
