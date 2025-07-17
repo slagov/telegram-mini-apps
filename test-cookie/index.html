@@ -21,7 +21,7 @@
       max-width: 400px;
       display: flex;
       flex-direction: column;
-      gap: 2rem;
+      gap: 1.3rem;
       align-items: stretch;
     }
     button {
@@ -32,7 +32,7 @@
       color: white;
       border: none;
       border-radius: 13px;
-      box-shadow: 0 4px 16px rgba(52,183,241,0.10);
+      box-shadow: 0 4px 16px rgba(52,183,241,0.09);
       margin-bottom: 0;
       transition: background 0.15s;
       cursor: pointer;
@@ -42,6 +42,12 @@
     }
     button:active {
       background: #2893c6;
+    }
+    .delete-btn {
+      background: #ff5c5c;
+    }
+    .delete-btn:active {
+      background: #ce2323;
     }
     .cookie-display {
       margin-top: 0.5em;
@@ -68,20 +74,25 @@
   <div class="container">
     <button onclick="setCookie()">Установить cookie</button>
     <button onclick="showCookies()">Показать cookie</button>
+    <button class="delete-btn" onclick="deleteCookie()">Удалить cookie</button>
     <div class="cookie-display" id="cookieDisplay" aria-live="polite"></div>
-    <div class="hint">Для Telegram Mini Apps<br>— удобно нажимать пальцем 🙂</div>
   </div>
   <script>
     function setCookie() {
       var date = new Date();
-      date.setDate(date.getDate() + 1);
+      date.setTime(date.getTime() + 2 * 60 * 1000); // 2 минуты
       document.cookie = "session=cookie-for-testing; path=/; expires=" + date.toUTCString();
-      alert("Cookie 'session' установлен!");
+      alert("Cookie 'session' установлен на 5 минут!");
     }
 
     function showCookies() {
       const cookies = document.cookie || '(Нет cookies)';
       document.getElementById('cookieDisplay').textContent = cookies;
+    }
+
+    function deleteCookie() {
+      document.cookie = "session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      alert("Cookie 'session' удалён!");
     }
   </script>
 </body>
