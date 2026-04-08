@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bridge Hunter</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:monospace; background:#0a0a0a; color:#ccc; padding:10px; font-size:13px; }
+h2 { color:#0f0; margin:10px 0 6px; font-size:15px; border-bottom:1px solid #222; padding-bottom:4px; }
+.card { background:#111; border:1px solid #333; border-radius:6px; padding:10px; margin-bottom:8px; }
+.card.hot { border-color:#f44; background:#1a0505; }
+.card.warm { border-color:#fa0; background:#1a1005; }
+.prop-name { font-weight:bold; font-size:14px; }
+.prop-name.hot { color:#f66; }
+.prop-name.warm { color:#fa0; }
+.prop-name.cold { color:#888; }
+.tag { display:inline-block; padding:1px 5px; border-radius:3px; font-size:10px; margin:2px 2px 0 0; }
+.tag-score { background:#003; color:#6af; }
+.tag-type { background:#201030; color:#a8f; }
+.tag-fn { background:#102000; color:#8f4; }
+.tag-java { background:#300; color:#f88; }
+.method { padding:3px 0; border-bottom:1px solid #1a1a1a; }
+.method-name { color:#ff0; }
+.method-prop { color:#a8f; }
+.method-val { color:#666; font-size:11px; }
+.btn { background:#222; color:#6af; border:1px solid #36f; border-radius:3px; padding:2px 8px; font-family:monospace; font-size:11px; cursor:pointer; margin-top:3px; }
+.btn:active { background:#36f; color:#fff; }
+.result { background:#0a0015; border:1px solid #303; border-radius:3px; padding:4px 6px; margin-top:4px; font-size:11px; color:#c8f; word-break:break-all; }
+.ok { color:#0f0; }
+.err { color:#f44; }
+#output { min-height:100px; }
+</style>
+</head>
+<body>
+
+<h2>🎯 BRIDGE HUNTER</h2>
+<div id="meta" class="card"></div>
+
+<h2>🔴 HIGH CONFIDENCE</h2>
+<div id="high">scanning...</div>
+
+<h2>🟡 MEDIUM CONFIDENCE</h2>
+<div id="medium"></div>
+
+<h2>⚪ ALL NON-STANDARD (window.*)</h2>
+<div id="all"></div>
+
+<h2>🍎 iOS CHECK</h2>
+<div id="ios" class="card"></div>
+
+<h2>📋 RAW WINDOW DUMP</h2>
+<div id="rawdump" class="card" style="font-size:11px;max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-all;"></div>
+
+<script>
+(function(){
+
+// ============================================================
+// 1. СОБИРАЕМ ВСЕ СВОЙСТВА WINDOW
+// ============================================================
+var allProps = {};
+try { for (var k in window) { allProps[k] = true; } } catch(e){}
+try { Object.getOwnPropertyNames(window).forEach(function(k){ allProps[k] = true; }); } catch(e){}
+
+var propList = Object.keys(allProps);
+
+// ============================================================
+// 2. КЛЮЧЕВЫЕ СЛОВА ДЛЯ СКОРИНГА
+// ============================================================
+var keywords = [
+  'bridge','native','android','ios','app','mobile','webview',
+  'jsbridge','jsi','interface','handler','hybrid','cordova',
+  'capacitor','flutter','invoke','dispatch','wrapper','proxy',
+  'injected','exposed','sdk','client','channel','yandex',
+  'lavka','taxi','uber','vk','telegram','wechat','alipay'
+];
+
+var methodKeywords = [
+  'token','auth','user','config','device','version','platform',
+  'toast','url','deep','navigate','message','event','cookie',
+  'close','share','pay','scan','vibrate','clipboard','camera',
+  'location','notify','storage','keychain','biometric','send',
+  'open','get','set','post','fetch','load','read','write'
+];
+
+// ============================================================
+// 3. ОПРЕДЕЛЯЕМ БАЗОВЫЕ СВОЙСТВА WINDOW (СТАНДАРТНЫЕ)
+//    Вместо огромного списка — снимаем fingerprint по типу
+// ============================================================
+function isLikelyStandard(name, val) {
+  // числовые индексы (фреймы)
+  if (/^\d+$/.test(name)) return true;
+  // on* события
+  if (/^on[a-z]/.test(name) && (val === null || typeof val === 'function')) return true;
+  // Конструкторы с большой буквы, typeof function, имеющие prototype
+  if (typeof val === 'function' && /^[A-Z]/.test(name)) {
+    try {
+      if (val.prototype && val.prototype.constructor === val) {
+        // это скорее всего конструктор стандартного API
+        // НО нативный bridge тоже может быть функцией
+        // помечаем как стандартный только если имя НЕ содержит keywords
+        var low = name.toLowerCase();
+        for (var i = 0; i < keywords.length; i++) {
+          if (low.indexOf(keywords[i]) !== -1) return false;
+        }
+        return true;
+      }
+    } catch(e){}
+  }
+  return false;
+}
+
+// Хардкод самых частых стандартных
+var hardcodedStd = (
+  'window,self,document,name,location,history,navigator,screen,'+
+  'localStorage,sessionStorage,console,performance,crypto,'+
+  'indexedDB,caches,cookieStore,customElements,external,'+
+  'origin,closed,frames,length,top,opener,parent,frameElement,'+
+  'innerWidth,innerHeight,outerWidth,outerHeight,devicePixelRatio,'+
+  'screenX,screenY,screenLeft,screenTop,scrollX,scrollY,pageXOffset,pageYOffset,'+
+  'visualViewport,locationbar,menubar,personalbar,scrollbars,statusbar,toolbar,'+
+  'status,isSecureContext,crossOriginIsolated,scheduler,'+
+  'alert,confirm,prompt,print,open,close,stop,focus,blur,'+
+  'scroll,scrollTo,scrollBy,moveTo,moveBy,resizeTo,resizeBy,'+
+  'getSelection,getComputedStyle,matchMedia,find,postMessage,'+
+  'requestAnimationFrame,cancelAnimationFrame,'+
+  'setTimeout,clearTimeout,setInterval,clearInterval,'+
+  'queueMicrotask,structuredClone,reportError,'+
+  'atob,btoa,fetch,createImageBitmap,'+
+  'eval,parseInt,parseFloat,isNaN,isFinite,'+
+  'decodeURI,decodeURIComponent,encodeURI,encodeURIComponent,'+
+  'escape,unescape,NaN,Infinity,undefined,'+
+  'globalThis,constructor,chrome,speechSynthesis,'+
+  'requestIdleCallback,cancelIdleCallback,'+
+  'webkitRequestAnimationFrame,webkitCancelAnimationFrame,'+
+  'TEMPORARY,PERSISTENT,clientInformation,styleMedia,onsearch,'+
+  'webkitRequestFileSystem,webkitResolveLocalFileSystemURL,openDatabase,'+
+  'Object,Function,Array,Number,Boolean,String,Symbol,BigInt,'+
+  'RegExp,Date,Promise,Proxy,Reflect,Map,Set,WeakMap,WeakSet,'+
+  'WeakRef,FinalizationRegistry,Error,TypeError,RangeError,'+
+  'ReferenceError,SyntaxError,URIError,EvalError,AggregateError,'+
+  'JSON,Math,Intl,ArrayBuffer,SharedArrayBuffer,DataView,'+
+  'Uint8Array,Int8Array,Uint16Array,Int16Array,Uint32Array,Int32Array,'+
+  'Float32Array,Float64Array,Uint8ClampedArray,BigInt64Array,BigUint64Array'
+).split(',');
+var stdSet = {};
+hardcodedStd.forEach(function(s){ stdSet[s] = true; });
+
+// ============================================================
+// 4. СКОРИНГ
+// ============================================================
+function scoreCandidate(name, val) {
+  var score = 0;
+  var reasons = [];
+  var t = typeof val;
+  var low = name.toLowerCase();
+
+  // keyword в имени
+  keywords.forEach(function(kw){
+    if (low.indexOf(kw) !== -1) { score += 15; reasons.push('name~"'+kw+'"'); }
+  });
+
+  // typeof object с методами
+  if (t === 'object' && val !== null) {
+    score += 5;
+    var fns = 0;
+    try { for (var k in val) { if (typeof val[k] === 'function') fns++; } } catch(e){}
+    if (fns > 0) { score += 10 + Math.min(fns*3, 30); reasons.push(fns+' methods'); }
+  }
+
+  // getClass → Java
+  try {
+    if (val && typeof val.getClass === 'function') {
+      score += 50; reasons.push('has getClass() → JAVA!');
+    }
+  } catch(e){}
+
+  // toString → Java pattern
+  try {
+    var ts = val && val.toString ? val.toString() : '';
+    if (/^[a-z]+\.[a-z]+\.\w+@/i.test(ts)) {
+      score += 35; reasons.push('toString=Java:"'+ts.substring(0,50)+'"');
+    } else if (ts.indexOf('@') > 0 && ts.length < 100) {
+      score += 15; reasons.push('toString has @');
+    }
+  } catch(e){}
+
+  // нестандартный constructor
+  try {
+    var cn = val && val.constructor ? val.constructor.name : '';
+    if (cn && cn !== 'Object' && cn !== 'Array' && cn !== 'Function' && !stdSet[cn]) {
+      score += 10; reasons.push('constructor='+cn);
+    }
+  } catch(e){}
+
+  // Методы с характерными именами
+  try {
+    for (var mk in val) {
+      var ml = mk.toLowerCase();
+      methodKeywords.forEach(function(mkw){
+        if (ml.indexOf(mkw) !== -1 && typeof val[mk] === 'function') {
+          score += 5; reasons.push('method~"'+mk+'"');
+        }
+      });
+    }
+  } catch(e){}
+
+  // штраф за DOM
+  try { if (val instanceof HTMLElement || val instanceof Node) { score -= 50; } } catch(e){}
+  try { if (val instanceof Event || val instanceof Error) { score -= 30; } } catch(e){}
+
+  return {score: score, reasons: reasons};
+}
+
+// ============================================================
+// 5. ИЗВЛЕЧЕНИЕ МЕТОДОВ
+// ============================================================
+function getMethods(obj) {
+  var out = [];
+  var seen = {};
+
+  function add(k, src) {
+    if (seen[k]) return;
+    seen[k] = true;
+    var info = {name:k, source:src, type:'?', arity:'?', fnStr:'', value:''};
+    try { info.type = typeof obj[k]; } catch(e){ info.type = 'err'; }
+    if (info.type === 'function') {
+      try { info.arity = obj[k].length; } catch(e){}
+      try { info.fnStr = obj[k].toString().substring(0,120); } catch(e){}
+    } else {
+      try { info.value = String(obj[k]).substring(0,100); } catch(e){ info.value='?'; }
+    }
+    out.push(info);
+  }
+
+  try { for (var k in obj) add(k, 'enum'); } catch(e){}
+  try { Object.getOwnPropertyNames(obj).forEach(function(k){ add(k,'own'); }); } catch(e){}
+  try {
+    var p = Object.getPrototypeOf(obj), d=0;
+    while (p && p !== Object.prototype && d < 3) {
+      Object.getOwnPropertyNames(p).forEach(function(k){ add(k,'proto'+d); });
+      p = Object.getPrototypeOf(p); d++;
+    }
+  } catch(e){}
+
+  out.sort(function(a,b){
+    if (a.type==='function' && b.type!=='function') return -1;
+    if (a.type!=='function' && b.type==='function') return 1;
+    return a.name < b.name ? -1 : 1;
+  });
+  return out;
+}
+
+// ============================================================
+// 6. РЕНДЕР ОДНОГО КАНДИДАТА
+// ============================================================
+function renderOne(name, obj, analysis) {
+  var level = analysis.score >= 30 ? 'hot' : analysis.score >= 10 ? 'warm' : 'cold';
+  var methods = getMethods(obj);
+  var uid = 'B_' + name.replace(/[^a-zA-Z0-9]/g,'_');
+
+  var h = '<div class="card ' + (level==='hot'?'hot':level==='warm'?'warm':'') + '">';
+
+  // Имя и скор
+  h += '<div class="prop-name '+level+'">window.' + esc(name) + '</div>';
+  h += '<div>';
+  h += '<span class="tag tag-score">score:'+analysis.score+'</span>';
+  h += '<span class="tag tag-type">'+esc(typeof obj)+'</span>';
+  var fnCount = methods.filter(function(m){return m.type==='function';}).length;
+  if (fnCount) h += '<span class="tag tag-fn">'+fnCount+' fn</span>';
+  analysis.reasons.forEach(function(r){
+    var cls = r.indexOf('Java')!==-1||r.indexOf('getClass')!==-1 ? 'tag-java' : 'tag-score';
+    h += '<span class="tag '+cls+'">'+esc(r)+'</span>';
+  });
+  h += '</div>';
+
+  // Методы
+  if (methods.length > 0) {
+    h += '<div style="margin-top:6px;padding:6px;background:#080808;border-radius:4px;max-height:250px;overflow:auto">';
+    methods.forEach(function(m, i){
+      h += '<div class="method">';
+      if (m.type === 'function') {
+        h += '<span class="method-name">' + esc(m.name) + '</span>';
+        h += ' <span class="method-val">('+m.arity+' args)</span>';
+        h += ' <button class="btn" onclick="window.__probe(\''+esc(name)+'\',\''+esc(m.name)+'\',\''+uid+'_'+i+'\')">▶ call()</button>';
+        h += '<div id="'+uid+'_'+i+'"></div>';
+        if (m.fnStr) h += '<div class="method-val">'+esc(m.fnStr)+'</div>';
+      } else {
+        h += '<span class="method-prop">' + esc(m.name) + '</span>';
+        h += ' <span class="method-val">['+esc(m.type)+'] = '+esc(m.value)+'</span>';
+      }
+      h += '</div>';
+    });
+    h += '</div>';
+  }
+
+  h += '</div>';
+  return {html: h, level: level, fnCount: fnCount};
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Вызов метода по кнопке
+window.__probe = function(bridgeName, methodName, elId) {
+  var el = document.getElementById(elId);
+  if (!el) return;
+  try {
+    var r = window[bridgeName][methodName]();
+    var rs = (r === undefined) ? 'undefined' : (r === null) ? 'null' : String(r).substring(0,500);
+    el.innerHTML = '<div class="result"><span class="ok">✅ '+esc(rs)+'</span></div>';
+  } catch(e) {
+    el.innerHTML = '<div class="result"><span class="err">❌ '+esc(e.message)+'</span></div>';
+  }
+};
+
+// ============================================================
+// 7. ГЛАВНЫЙ СКАН
+// ============================================================
+function run() {
+  // Meta
+  document.getElementById('meta').innerHTML =
+    'origin: <b>'+esc(location.origin)+'</b><br>'+
+    'in iframe: <b>'+(window!==window.top)+'</b><br>'+
+    'userAgent: <span style="font-size:10px;color:#666">'+esc(navigator.userAgent)+'</span><br>'+
+    'window props total: <b>'+propList.length+'</b>';
+
+  var highCards = [];
+  var mediumCards = [];
+  var allCards = [];
+  var rawLines = [];
+
+  propList.forEach(function(name){
+    var val;
+    try { val = window[name]; } catch(e){ return; }
+
+    rawLines.push(name + ' : ' + typeof val);
+
+    // пропускаем стандартные
+    if (stdSet[name]) return;
+    if (isLikelyStandard(name, val)) return;
+    // пропускаем null/undefined/примитивы (но не все — function тоже интересны)
+    if (val === null || val === undefined) return;
+    var t = typeof val;
+    if (t === 'number' || t === 'boolean' || t === 'string' || t === 'symbol' || t === 'bigint') return;
+
+    var analysis = scoreCandidate(name, val);
+    var r = renderOne(name, val, analysis);
+
+    allCards.push({score: analysis.score, html: r.html});
+
+    if (analysis.score >= 30) {
+      highCards.push({score: analysis.score, html: r.html});
+    } else if (analysis.score >= 10) {
+      mediumCards.push({score: analysis.score, html: r.html});
+    }
+  });
+
+  // сортируем по score desc
+  function byScore(a,b){ return b.score - a.score; }
+  highCards.sort(byScore);
+  mediumCards.sort(byScore);
+  allCards.sort(byScore);
+
+  document.getElementById('high').innerHTML =
+    highCards.length ? highCards.map(function(c){return c.html;}).join('')
+    : '<div class="card" style="color:#666">Nothing with score ≥ 30</div>';
+
+  document.getElementById('medium').innerHTML =
+    mediumCards.length ? mediumCards.map(function(c){return c.html;}).join('')
+    : '<div class="card" style="color:#666">Nothing with score 10-29</div>';
+
+  document.getElementById('all').innerHTML =
+    allCards.length ? allCards.map(function(c){return c.html;}).join('')
+    : '<div class="card" style="color:#666">No non-standard objects found</div>';
+
+  // iOS
+  var iosHtml = '';
+  try {
+    if (window.webkit && window.webkit.messageHandlers) {
+      iosHtml += '<span class="ok">✅ window.webkit.messageHandlers EXISTS</span><br>';
+      try {
+        for (var hk in window.webkit.messageHandlers) {
+          iosHtml += '  handler: <b>'+esc(hk)+'</b><br>';
+        }
+      } catch(e){ iosHtml += '  (cannot enumerate: '+esc(e.message)+')<br>'; }
+      try {
+        Object.getOwnPropertyNames(window.webkit.messageHandlers).forEach(function(hk){
+          iosHtml += '  handler(own): <b>'+esc(hk)+'</b><br>';
+        });
+      } catch(e){}
+    } else {
+      iosHtml = '<span style="color:#666">webkit.messageHandlers not found</span>';
+    }
+  } catch(e){
+    iosHtml = '<span style="color:#666">not iOS ('+esc(e.message)+')</span>';
+  }
+  document.getElementById('ios').innerHTML = iosHtml;
+
+  // Raw dump
+  document.getElementById('rawdump').textContent = rawLines.join('\n');
+}
+
+run();
+
+// повтор через 3 сек (bridge может инжектиться позже)
+setTimeout(run, 3000);
+
+})();
+</script>
+</body>
+</html>
