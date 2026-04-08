@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bridge Explorer v5</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Courier New',monospace;background:#080810;color:#b0b8c8;padding:8px;font-size:12px;-webkit-text-size-adjust:100%}
+
+#console-bar{position:fixed;bottom:0;left:0;right:0;background:#0a0a18;border-top:2px solid #2563eb;padding:6px;z-index:9999;display:flex;gap:4px}
+#console-bar input{flex:1;background:#111;color:#0f0;border:1px solid #333;border-radius:4px;padding:6px 8px;font-family:monospace;font-size:13px}
+#console-bar button{background:#1e3a5f;color:#6af;border:1px solid #2563eb;border-radius:4px;padding:6px 12px;font-family:monospace;font-size:12px;-webkit-tap-highlight-color:transparent}
+#console-output{position:fixed;bottom:42px;left:0;right:0;max-height:35vh;overflow-y:auto;background:#0a0a14;border-top:1px solid #222;padding:6px;z-index:9998;font-size:11px;display:none}
+#console-output.open{display:block}
+.con-line{padding:2px 0;border-bottom:1px solid #111;word-break:break-all}
+.con-i{color:#6af}.con-s{color:#4f8}.con-e{color:#f66}.con-w{color:#fa0}
+
+h1{color:#0f0;font-size:15px;margin-bottom:8px}
+.stats{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.stat{background:#111;border:1px solid #222;border-radius:4px;padding:6px 10px;font-size:11px}
+.stat b{color:#6af}
+
+.node{margin-left:12px;border-left:1px solid #1a2030}
+.node-root{margin-left:0;border-left:none}
+.node.hidden{display:none}
+.node.search-ancestor>.row{border-left:2px solid #335}
+.row{display:flex;align-items:flex-start;padding:4px 6px;border-bottom:1px solid #0d0d18;cursor:pointer;gap:6px;min-height:28px;flex-wrap:wrap;-webkit-tap-highlight-color:transparent}
+.row:hover{background:#0f1525}
+.row:active{background:#141e35}
+.row.search-hit{background:#1a1800;border-left:3px solid #fa0}
+.arrow{width:16px;color:#445;flex-shrink:0;text-align:center;font-size:14px;user-select:none;line-height:20px}
+.arrow.open{color:#6af}
+.key{color:#f0c060;font-weight:bold;word-break:break-all;flex-shrink:0;max-width:50%}
+.type-tag{font-size:10px;padding:1px 5px;border-radius:3px;flex-shrink:0;display:inline-block;margin:1px 2px 1px 0}
+.t-function{background:#1a2800;color:#af0}
+.t-object{background:#001828;color:#4af}
+.t-string{background:#281800;color:#fa4}
+.t-number{background:#180028;color:#a4f}
+.t-boolean{background:#002818;color:#4fa}
+.t-other{background:#181818;color:#888}
+.t-java{background:#300;color:#f88}
+.t-iface{background:#440;color:#ff0;font-weight:bold}
+.val-preview{color:#667;font-size:11px;word-break:break-all;flex:1;min-width:0}
+.score-badge{font-size:10px;padding:1px 5px;border-radius:3px;flex-shrink:0}
+.score-high{background:#400;color:#f66}
+.score-med{background:#330;color:#fa0}
+.score-low{background:#112;color:#68a}
+.children{display:none}
+.children.open{display:block}
+.path-display{font-size:9px;color:#444;padding:0 6px 2px 22px;word-break:break-all}
+
+.invoke-panel{background:#0a0a1a;border:1px solid #1a2040;border-radius:4px;margin:4px 0 4px 22px;padding:8px;display:none}
+.invoke-panel textarea{background:#111;color:#ccc;border:1px solid #333;border-radius:3px;padding:4px 6px;font-family:monospace;font-size:12px;width:100%;height:60px;resize:vertical}
+.invoke-panel .args-hint{color:#556;font-size:10px;margin-bottom:3px}
+.invoke-btn{background:#1a3a1a;color:#4f8;border:1px solid #2a5;border-radius:3px;padding:4px 12px;font-family:monospace;font-size:11px;cursor:pointer;margin-top:4px;margin-right:4px;-webkit-tap-highlight-color:transparent}
+.invoke-btn:active{background:#2a5;color:#fff}
+.result-box{background:#0a0018;border:1px solid #252;border-radius:3px;padding:6px;margin-top:6px;font-size:11px;word-break:break-all;max-height:200px;overflow:auto;display:none}
+.res-ok{color:#4f8}.res-err{color:#f66}
+
+.section{background:#0d0d18;border:1px solid #1a2030;border-radius:6px;padding:10px;margin-bottom:10px}
+.section-title{color:#6af;font-size:13px;font-weight:bold;margin-bottom:6px}
+
+#search{background:#111;color:#ccc;border:1px solid #333;border-radius:4px;padding:6px 8px;font-family:monospace;font-size:12px;width:100%;margin-bottom:4px}
+#search-info{font-size:10px;color:#556;margin-bottom:8px;min-height:14px}
+mark{background:#664400;color:#ffcc00;padding:0 1px;border-radius:2px}
+
+.heuristic-bar{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px}
+.h-tag{font-size:9px;padding:1px 4px;border-radius:2px}
+.h-java{background:#400;color:#f88}
+.h-iface{background:#440;color:#ff0}
+.h-bridge{background:#140030;color:#c8f}
+.h-methods{background:#003014;color:#4fa}
+.h-suspicious{background:#301800;color:#fa8}
+
+body{padding-bottom:50px}
+</style>
+</head>
+<body>
+
+<h1>🔍 Bridge Explorer v5</h1>
+<input id="search" placeholder="Search everywhere recursively (e.g. 'token', 'getAuth', 'native')" oninput="doSearch(this.value)">
+<div id="search-info"></div>
+<div class="stats" id="stats"></div>
+<div class="section">
+  <div class="section-title">🌳 Interactive Object Explorer</div>
+  <div id="tree"></div>
+</div>
+
+<div id="console-output"></div>
+<div id="console-bar">
+  <input id="console-input" placeholder="JS eval: window.android.getToken()" onkeydown="if(event.key==='Enter')runConsole()">
+  <button onclick="runConsole()">▶</button>
+  <button onclick="toggleConsole()">📋</button>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════
+// CONSOLE
+// ═══════════════════════════════════════
+var conLines=[];
+function clog(m,l){l=l||'i';conLines.push({m:String(m),l:l});if(conLines.length>500)conLines.shift();
+var e=document.getElementById('console-output');e.innerHTML=conLines.map(function(x){return'<div class="con-line con-'+x.l+'">'+esc(x.m)+'</div>'}).join('');e.scrollTop=e.scrollHeight}
+window.toggleConsole=function(){document.getElementById('console-output').classList.toggle('open')};
+window.runConsole=function(){var i=document.getElementById('console-input'),c=i.value.trim();if(!c)return;clog('> '+c,'w');try{var r=eval(c);clog(safeStr(r,500),'s')}catch(e){clog('ERROR: '+e.message,'e')}i.value=''};
+
+// ═══════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function safeStr(v,ml){ml=ml||150;try{if(v===undefined)return'undefined';if(v===null)return'null';if(typeof v==='function')return'function('+v.length+')';if(typeof v==='object'){var s=JSON.stringify(v);return s.length>ml?s.substring(0,ml)+'…':s}var r=String(v);return r.length>ml?r.substring(0,ml)+'…':r}catch(e){try{return String(v).substring(0,ml)}catch(e2){return'[?]'}}}
+function typeTag(t){var c='other';if(t==='function')c='function';else if(t==='object')c='object';else if(t==='string')c='string';else if(t==='number')c='number';else if(t==='boolean')c='boolean';return'<span class="type-tag t-'+c+'">'+esc(t)+'</span>'}
+function isJavaObj(o){try{return o&&typeof o.getClass==='function'}catch(e){return false}}
+function getJavaClass(o){try{return o.getClass().getName()}catch(e){return null}}
+
+// ═══════════════════════════════════════
+// HEURISTICS / SCORING
+// ═══════════════════════════════════════
+var IFACE_KW=['native','api','js','iface','interface','bridge','wrapper'];
+var BRIDGE_KW=['bridge','native','android','ios','app','mobile','webview','jsbridge','jsi','interface',
+'handler','hybrid','cordova','capacitor','flutter','invoke','dispatch','wrapper','proxy','injected',
+'exposed','sdk','client','channel','yandex','lavka','taxi','vk','telegram','wechat','device','message'];
+var METHOD_KW=['token','auth','user','config','device','version','platform','toast','url','deep',
+'navigate','message','event','cookie','close','share','pay','scan','vibrate','clipboard','camera',
+'location','notify','storage','keychain','biometric','send','open','get','set','post','fetch','load',
+'read','write','exec','run','eval','inject','call','file','data','secret','key','password','session'];
+
+function hasIfaceKeyword(name){
+  var low=name.toLowerCase();
+  for(var i=0;i<IFACE_KW.length;i++){if(low.indexOf(IFACE_KW[i])!==-1)return IFACE_KW[i]}
+  return null;
+}
+
+function scoreProp(name,val){
+  var score=0,reasons=[],tags=[];
+  var low=name.toLowerCase();
+
+  // Iface keywords (highest priority)
+  var ifkw=hasIfaceKeyword(name);
+  if(ifkw){score+=25;reasons.push('iface keyword "'+ifkw+'"');tags.push({text:'IFACE:'+ifkw,cls:'h-iface'})}
+
+  // Bridge keywords in name
+  BRIDGE_KW.forEach(function(kw){if(low.indexOf(kw)!==-1){score+=12;reasons.push('name~"'+kw+'"');tags.push({text:kw,cls:'h-bridge'})}});
+
+  var t=typeof val;
+
+  // Object with methods
+  if(t==='object'&&val!==null){
+    score+=5;
+    var fc=0,memberNames=[];
+    try{for(var k in val){memberNames.push(k);if(typeof val[k]==='function')fc++}}catch(e){}
+    if(fc>0){score+=10+Math.min(fc*3,30);reasons.push(fc+' methods');tags.push({text:fc+'fn',cls:'h-methods'})}
+
+    // Check member names for iface/method keywords
+    memberNames.forEach(function(mn){
+      var ml=mn.toLowerCase();
+      IFACE_KW.forEach(function(ik){if(ml.indexOf(ik)!==-1){score+=8;tags.push({text:'member:'+mn+'~'+ik,cls:'h-iface'})}});
+      METHOD_KW.forEach(function(mk){
+        if(ml.indexOf(mk)!==-1&&typeof val[mn]==='function'){score+=3;reasons.push('method~"'+mn+'"')}
+      });
+    });
+  }
+
+  // Java object detection
+  if(isJavaObj(val)){
+    score+=50;var jc=getJavaClass(val);
+    reasons.push('JAVA'+(jc?':'+jc:''));tags.push({text:'JAVA'+(jc?':'+jc.split('.').pop():''),cls:'h-java'})
+  }
+
+  // toString pattern
+  try{
+    var ts=val&&val.toString?val.toString():'';
+    if(/^[a-z]+\.[a-z]+\.\w+@/i.test(ts)){score+=35;reasons.push('toString=Java');tags.push({text:'Java toString',cls:'h-java'})}
+    else if(ts.indexOf('@')>0&&ts.length<100){score+=15;reasons.push('toString has @');tags.push({text:'has @',cls:'h-suspicious'})}
+  }catch(e){}
+
+  // Non-standard constructor
+  try{var cn=val&&val.constructor?val.constructor.name:'';
+    if(cn&&cn!=='Object'&&cn!=='Array'&&cn!=='Function'&&!STD_SET[cn]){score+=10;reasons.push('constructor='+cn);tags.push({text:'ctor:'+cn,cls:'h-suspicious'})}
+  }catch(e){}
+
+  // Penalties
+  try{if(val instanceof HTMLElement||val instanceof Node){score-=50}}catch(e){}
+  try{if(val instanceof Event||val instanceof Error){score-=30}}catch(e){}
+
+  return{score:score,reasons:reasons,tags:tags};
+}
+
+// Member-level heuristic (for children inside objects)
+function scoreMember(key,val){
+  var score=0,tags=[];
+  var low=key.toLowerCase();
+
+  // Iface keywords
+  var ifkw=hasIfaceKeyword(key);
+  if(ifkw){score+=30;tags.push({text:'IFACE:'+ifkw,cls:'h-iface'})}
+
+  // Bridge keywords
+  BRIDGE_KW.forEach(function(kw){if(low.indexOf(kw)!==-1){score+=10;tags.push({text:kw,cls:'h-bridge'})}});
+
+  // Method keywords
+  METHOD_KW.forEach(function(mk){if(low.indexOf(mk)!==-1){score+=5;tags.push({text:mk,cls:'h-suspicious'})}});
+
+  var t=typeof val;
+  if(t==='object'&&val!==null){
+    if(isJavaObj(val)){score+=50;tags.push({text:'JAVA',cls:'h-java'})}
+    var fc=0;try{for(var k in val){if(typeof val[k]==='function')fc++}}catch(e){}
+    if(fc>0){score+=8;tags.push({text:fc+'fn',cls:'h-methods'})}
+  }
+  if(t==='function'){
+    score+=3;
+    // Check arity 0 getters
+    try{if(val.length===0&&/^(get|is|has|check|current|read|load|fetch)/i.test(key)){score+=10;tags.push({text:'getter?',cls:'h-suspicious'})}}catch(e){}
+  }
+  try{var ts=val&&val.toString?val.toString():'';if(/^[a-z]+\.[a-z]+\.\w+@/i.test(ts)){score+=35;tags.push({text:'Java toString',cls:'h-java'})}}catch(e){}
+
+  return{score:score,tags:tags};
+}
+
+// ═══════════════════════════════════════
+// STANDARD PROPS SET
+// ═══════════════════════════════════════
+var STD_LIST=('window,self,document,name,location,history,navigator,screen,localStorage,sessionStorage,'+
+'console,performance,crypto,indexedDB,caches,cookieStore,customElements,external,origin,closed,'+
+'frames,length,top,opener,parent,frameElement,innerWidth,innerHeight,outerWidth,outerHeight,'+
+'devicePixelRatio,screenX,screenY,screenLeft,screenTop,scrollX,scrollY,pageXOffset,pageYOffset,'+
+'visualViewport,locationbar,menubar,personalbar,scrollbars,statusbar,toolbar,status,isSecureContext,'+
+'crossOriginIsolated,scheduler,alert,confirm,prompt,print,open,close,stop,focus,blur,scroll,'+
+'scrollTo,scrollBy,moveTo,moveBy,resizeTo,resizeBy,getSelection,getComputedStyle,matchMedia,'+
+'find,postMessage,requestAnimationFrame,cancelAnimationFrame,setTimeout,clearTimeout,setInterval,'+
+'clearInterval,queueMicrotask,structuredClone,reportError,atob,btoa,fetch,createImageBitmap,'+
+'eval,parseInt,parseFloat,isNaN,isFinite,decodeURI,decodeURIComponent,encodeURI,'+
+'encodeURIComponent,escape,unescape,NaN,Infinity,undefined,globalThis,constructor,chrome,'+
+'speechSynthesis,requestIdleCallback,cancelIdleCallback,webkitRequestAnimationFrame,'+
+'webkitCancelAnimationFrame,TEMPORARY,PERSISTENT,clientInformation,styleMedia,onsearch,'+
+'webkitRequestFileSystem,webkitResolveLocalFileSystemURL,openDatabase,Object,Function,Array,'+
+'Number,Boolean,String,Symbol,BigInt,RegExp,Date,Promise,Proxy,Reflect,Map,Set,WeakMap,WeakSet,'+
+'WeakRef,FinalizationRegistry,Error,TypeError,RangeError,ReferenceError,SyntaxError,URIError,'+
+'EvalError,AggregateError,JSON,Math,Intl,ArrayBuffer,SharedArrayBuffer,DataView,Uint8Array,'+
+'Int8Array,Uint16Array,Int16Array,Uint32Array,Int32Array,Float32Array,Float64Array,'+
+'Uint8ClampedArray,BigInt64Array,BigUint64Array').split(',');
+var STD_SET={};STD_LIST.forEach(function(s){STD_SET[s]=true});
+
+// ═══════════════════════════════════════
+// GET ALL MEMBERS
+// ═══════════════════════════════════════
+function getMembers(obj){
+  var out=[],seen={};
+  function add(k,src){
+    if(seen[k])return;seen[k]=true;
+    var info={key:k,source:src,type:'unknown',value:null,error:null,arity:null};
+    try{info.type=typeof obj[k];info.value=obj[k]}catch(e){info.error=e.message;info.type='inaccessible'}
+    if(info.type==='function'){try{info.arity=obj[k].length}catch(e){}}
+    out.push(info);
+  }
+  try{for(var k in obj)add(k,'enum')}catch(e){}
+  try{Object.getOwnPropertyNames(obj).forEach(function(k){add(k,'own')})}catch(e){}
+  try{var p=Object.getPrototypeOf(obj),d=0;while(p&&p!==Object.prototype&&d<3){try{Object.getOwnPropertyNames(p).forEach(function(k){add(k,'proto')})}catch(e){}p=Object.getPrototypeOf(p);d++}}catch(e){}
+  return out;
+}
+
+// ═══════════════════════════════════════
+// GLOBAL REGISTRY — все ноды для поиска
+// ═══════════════════════════════════════
+var allNodes=[];  // {id, key, path, el, parentId, childIds[], objRef, loaded, memberKeys[]}
+var nodeMap={};   // id -> node
+var nodeIdCtr=0;
+
+// Регистрация ноды с PRE-SCAN дочерних ключей (без создания DOM)
+function registerNode(key, obj, parentPath, parentId){
+  var id='n'+(nodeIdCtr++);
+  var path=parentPath?parentPath+'.'+key:key;
+  var t='unknown';
+  try{t=typeof obj}catch(e){}
+
+  // Pre-scan member keys (НЕ создаём DOM, только собираем имена для поиска)
+  var memberKeys=[];
+  if((t==='object'&&obj!==null)||t==='function'){
+    try{for(var k in obj)memberKeys.push(k)}catch(e){}
+    try{Object.getOwnPropertyNames(obj).forEach(function(k){if(memberKeys.indexOf(k)===-1)memberKeys.push(k)})}catch(e){}
+  }
+
+  var node={
+    id:id, key:key, path:path, el:null, parentId:parentId,
+    childIds:[], objRef:obj, type:t, loaded:false, expanded:false,
+    memberKeys:memberKeys, memberKeysLower:memberKeys.map(function(m){return m.toLowerCase()})
+  };
+  allNodes.push(node);
+  nodeMap[id]=node;
+  return node;
+}
+
+// ═══════════════════════════════════════
+// BUILD DOM NODE
+// ═══════════════════════════════════════
+function buildNodeDOM(node, score, heuTags){
+  var obj=node.objRef;
+  var t=node.type;
+  var key=node.key;
+  var path=node.path;
+
+  var isJ=false,jClass=null,preview='',arity=null,expandable=false;
+
+  if(t==='function'){
+    try{arity=obj.length}catch(e){}
+    preview='function('+(arity!==null?arity:'?')+')';
+    expandable=true;
+  }else if(t==='object'&&obj!==null){
+    isJ=isJavaObj(obj);if(isJ)jClass=getJavaClass(obj);
+    preview=isJ?(jClass||'[Java Object]'):safeStr(obj,80);
+    expandable=true;
+  }else if(t==='inaccessible'){
+    preview='[inaccessible]';
+  }else{
+    try{preview=safeStr(obj,120)}catch(e){preview='?'}
+  }
+
+  var container=document.createElement('div');
+  container.className='node'+(node.parentId?'':' node-root');
+  container.dataset.nodeId=node.id;
+  node.el=container;
+
+  // Row
+  var row=document.createElement('div');
+  row.className='row';
+
+  var arrow=document.createElement('span');
+  arrow.className='arrow';
+  arrow.textContent=expandable?'▶':'·';
+
+  var keyEl=document.createElement('span');
+  keyEl.className='key';
+  keyEl.textContent=key;
+
+  // Tags
+  var tagHtml=typeTag(t);
+  if(isJ)tagHtml+=' <span class="type-tag t-java">JAVA'+(jClass?':'+jClass.split('.').pop():'')+'</span>';
+  var ifkw=hasIfaceKeyword(key);
+  if(ifkw)tagHtml+=' <span class="type-tag t-iface">⚡'+ifkw.toUpperCase()+'</span>';
+  if(score!==undefined&&score>0){
+    var scCls=score>=30?'score-high':score>=10?'score-med':'score-low';
+    tagHtml+=' <span class="score-badge '+scCls+'">'+score+'</span>';
+  }
+  if(arity!==null)tagHtml+=' <span class="type-tag t-function">'+arity+'args</span>';
+
+  // Heuristic tags
+  if(heuTags&&heuTags.length){
+    tagHtml+='<div class="heuristic-bar">';
+    heuTags.forEach(function(ht){tagHtml+='<span class="h-tag '+ht.cls+'">'+esc(ht.text)+'</span>'});
+    tagHtml+='</div>';
+  }
+
+  var metaEl=document.createElement('span');
+  metaEl.innerHTML=tagHtml;
+
+  var valEl=document.createElement('span');
+  valEl.className='val-preview';
+  valEl.textContent=preview;
+
+  row.appendChild(arrow);
+  row.appendChild(keyEl);
+  row.appendChild(metaEl);
+  row.appendChild(valEl);
+
+  // Path display
+  var pathEl=document.createElement('div');
+  pathEl.className='path-display';
+  pathEl.textContent=path;
+
+  // Children
+  var childrenEl=document.createElement('div');
+  childrenEl.className='children';
+  childrenEl.id=node.id+'_ch';
+
+  // Invoke panel (functions)
+  var invokeEl=null;
+  if(t==='function'){
+    invokeEl=document.createElement('div');
+    invokeEl.className='invoke-panel';
+    invokeEl.innerHTML=
+      '<div class="args-hint">Arguments (one per line, JS expressions — strings in "quotes"):</div>'+
+      '<textarea id="'+node.id+'_args" placeholder="e.g.:\n&quot;hello&quot;\n42\ntrue"></textarea>'+
+      '<button class="invoke-btn" id="'+node.id+'_call">▶ Call '+esc(key)+'(args)</button> '+
+      '<button class="invoke-btn" id="'+node.id+'_call0">▶ Call () no args</button>'+
+      '<div class="result-box" id="'+node.id+'_res"></div>'+
+      '<button class="invoke-btn" id="'+node.id+'_exp" style="display:none">🔍 Explore result</button>'+
+      '<div id="'+node.id+'_restree"></div>';
+  }
+
+  // Click
+  row.onclick=function(e){
+    e.stopPropagation();
+    if(!expandable)return;
+    node.expanded=!node.expanded;
+    arrow.textContent=node.expanded?'▼':'▶';
+    arrow.className=node.expanded?'arrow open':'arrow';
+    childrenEl.className=node.expanded?'children open':'children';
+    if(invokeEl)invokeEl.style.display=node.expanded?'block':'none';
+    if(node.expanded&&!node.loaded){
+      node.loaded=true;
+      loadChildrenDOM(node, childrenEl);
+    }
+  };
+
+  container.appendChild(row);
+  container.appendChild(pathEl);
+  if(invokeEl)container.appendChild(invokeEl);
+  container.appendChild(childrenEl);
+
+  // Bind invoke buttons
+  if(t==='function'){
+    setTimeout(function(){
+      var callBtn=document.getElementById(node.id+'_call');
+      var call0Btn=document.getElementById(node.id+'_call0');
+      var expBtn=document.getElementById(node.id+'_exp');
+      if(callBtn)callBtn.onclick=function(e){e.stopPropagation();doInvoke(node,false)};
+      if(call0Btn)call0Btn.onclick=function(e){e.stopPropagation();doInvoke(node,true)};
+      if(expBtn)expBtn.onclick=function(e){e.stopPropagation();expandResult(node)};
+    },0);
+  }
+
+  return container;
+}
+
+// ═══════════════════════════════════════
+// LOAD CHILDREN DOM (lazy)
+// ═══════════════════════════════════════
+function loadChildrenDOM(parentNode, containerEl){
+  var obj=parentNode.objRef;
+  if(obj===null||obj===undefined){containerEl.innerHTML='<div style="color:#555;padding:4px 10px">null/undefined</div>';return}
+
+  var members=getMembers(obj);
+  if(members.length===0){containerEl.innerHTML='<div style="color:#555;padding:4px 10px">No enumerable members</div>';return}
+
+  var fnC=members.filter(function(m){return m.type==='function'}).length;
+  var info=document.createElement('div');
+  info.style.cssText='color:#445;font-size:10px;padding:2px 10px';
+  info.textContent=members.length+' members ('+fnC+' functions)';
+  containerEl.appendChild(info);
+
+  // Sort: iface keyword matches first, then by member score
+  members.forEach(function(m){
+    var ms=scoreMember(m.key,m.value);
+    m._score=ms.score;
+    m._tags=ms.tags;
+  });
+  members.sort(function(a,b){
+    if(a._score!==b._score)return b._score-a._score;
+    if(a.type==='function'&&b.type!=='function')return-1;
+    if(a.type!=='function'&&b.type==='function')return 1;
+    return a.key<b.key?-1:a.key>b.key?1:0;
+  });
+
+  members.forEach(function(m){
+    var childNode=registerNode(m.key, m.value, parentNode.path, parentNode.id);
+    parentNode.childIds.push(childNode.id);
+    var dom=buildNodeDOM(childNode, m._score>0?m._score:undefined, m._tags);
+    containerEl.appendChild(dom);
+  });
+}
+
+// ═══════════════════════════════════════
+// INVOKE
+// ═══════════════════════════════════════
+function doInvoke(node,noArgs){
+  var resEl=document.getElementById(node.id+'_res');
+  var expBtn=document.getElementById(node.id+'_exp');
+  resEl.style.display='block';
+  var fn=node.objRef;
+  var args=[];
+
+  if(!noArgs){
+    var argsText=(document.getElementById(node.id+'_args')||{}).value||'';
+    argsText=argsText.trim();
+    if(argsText){
+      var lines=argsText.split('\n');
+      for(var i=0;i<lines.length;i++){
+        var line=lines[i].trim();if(!line)continue;
+        try{args.push(eval('('+line+')'))}catch(e){resEl.innerHTML='<span class="res-err">❌ Arg parse error line '+(i+1)+': '+esc(e.message)+'</span>';return}
+      }
+    }
+  }
+
+  try{
+    var r;
+    if(args.length===0)r=fn();
+    else if(args.length===1)r=fn(args[0]);
+    else if(args.length===2)r=fn(args[0],args[1]);
+    else if(args.length===3)r=fn(args[0],args[1],args[2]);
+    else r=fn.apply(null,args);
+
+    var rt=typeof r;
+    var isJ=(rt==='object'&&r!==null)?isJavaObj(r):false;
+    var jc=isJ?getJavaClass(r):null;
+    var disp=safeStr(r,1000);
+
+    var html='<span class="res-ok">✅ ['+esc(rt)+'] ';
+    if(isJ)html+='<span class="type-tag t-java">JAVA:'+(jc||'?')+'</span> ';
+    html+=esc(disp)+'</span>';
+    resEl.innerHTML=html;
+
+    node._lastResult=r;
+    expBtn.style.display=(r&&(rt==='object'||rt==='function'))?'inline-block':'none';
+    clog('CALL '+node.key+'('+args.map(function(a){return safeStr(a,50)}).join(',')+') → '+disp.substring(0,200),'s');
+  }catch(e){
+    resEl.innerHTML='<span class="res-err">❌ '+esc(e.message)+'</span>';
+    node._lastResult=undefined;expBtn.style.display='none';
+    clog('CALL '+node.key+'() → ERROR: '+e.message,'e');
+  }
+}
+
+function expandResult(node){
+  var treeEl=document.getElementById(node.id+'_restree');
+  if(!treeEl||node._lastResult===undefined)return;
+  treeEl.innerHTML='';
+  var val=node._lastResult;
+  if(!val||typeof val==='string'||typeof val==='number'||typeof val==='boolean'){
+    treeEl.innerHTML='<div style="color:#888;padding:4px">Primitive — nothing to explore</div>';return;
+  }
+  var members=getMembers(val);
+  members.forEach(function(m){
+    var ms=scoreMember(m.key,m.value);m._score=ms.score;m._tags=ms.tags;
+  });
+  members.sort(function(a,b){return b._score-a._score});
+  members.forEach(function(m){
+    var cn=registerNode(m.key,m.value,node.path+'()');
+    var dom=buildNodeDOM(cn,m._score>0?m._score:undefined,m._tags);
+    treeEl.appendChild(dom);
+  });
+}
+
+// ═══════════════════════════════════════
+// SEARCH — рекурсивно по ВСЕМ нодам
+//   включая незагруженные (ищем по memberKeys)
+// ═══════════════════════════════════════
+var searchTimer=null;
+
+window.doSearch=function(query){
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(function(){executeSearch(query)},200);
+};
+
+function executeSearch(query){
+  var q=query.trim().toLowerCase();
+  var infoEl=document.getElementById('search-info');
+
+  // Сброс
+  allNodes.forEach(function(n){
+    if(!n.el)return;
+    n.el.classList.remove('hidden','search-ancestor');
+    var row=n.el.querySelector('.row');
+    if(row)row.classList.remove('search-hit');
+  });
+
+  if(!q){infoEl.textContent='';return}
+
+  var hitCount=0;
+  var deepHitCount=0;
+  var hitNodeIds={};
+
+  // 1) Проверяем ВСЕ зарегистрированные ноды (key, path)
+  allNodes.forEach(function(n){
+    var keyHit=n.key.toLowerCase().indexOf(q)!==-1;
+    var pathHit=n.path.toLowerCase().indexOf(q)!==-1;
+    if(keyHit||pathHit){
+      hitNodeIds[n.id]=true;
+      hitCount++;
+    }
+  });
+
+  // 2) Проверяем memberKeys (дочерние имена, даже если DOM не создан)
+  allNodes.forEach(function(n){
+    for(var i=0;i<n.memberKeysLower.length;i++){
+      if(n.memberKeysLower[i].indexOf(q)!==-1){
+        hitNodeIds[n.id]=true; // показать родителя
+        deepHitCount++;
+        break; // хотя бы один дочерний совпал
+      }
+    }
+  });
+
+  // 3) Сканируем НЕЗАРЕГИСТРИРОВАННЫЕ ноды: обходим window properties глубже
+  //    Для каждого top-level кандидата проверяем 2 уровня вглубь
+  allNodes.forEach(function(n){
+    if(n.parentId)return; // только top-level
+    if(hitNodeIds[n.id])return; // уже нашли
+    if(!n.objRef||typeof n.objRef!=='object')return;
+
+    // level 1 members уже в memberKeys
+    // level 2: для каждого member проверяем ЕГО members
+    for(var i=0;i<n.memberKeys.length;i++){
+      var mk=n.memberKeys[i];
+      try{
+        var child=n.objRef[mk];
+        if(!child||typeof child!=='object')continue;
+        // scan child's keys
+        try{
+          for(var ck in child){
+            if(ck.toLowerCase().indexOf(q)!==-1){
+              hitNodeIds[n.id]=true;
+              deepHitCount++;
+              break;
+            }
+          }
+        }catch(e){}
+        if(hitNodeIds[n.id])break;
+      }catch(e){}
+    }
+  });
+
+  // 4) Собираем ancestor chain для видимости
+  var visibleIds={};
+  Object.keys(hitNodeIds).forEach(function(id){
+    visibleIds[id]=true;
+    // поднимаемся по parent
+    var cur=nodeMap[id];
+    while(cur&&cur.parentId){
+      visibleIds[cur.parentId]=true;
+      cur=nodeMap[cur.parentId];
+    }
+  });
+
+  // 5) Применяем: скрываем/показываем
+  var totalVisible=0;
+  allNodes.forEach(function(n){
+    if(!n.el)return;
+    if(visibleIds[n.id]){
+      n.el.classList.remove('hidden');
+      totalVisible++;
+      var row=n.el.querySelector('.row');
+      if(hitNodeIds[n.id]){
+        if(row)row.classList.add('search-hit');
+      }else{
+        n.el.classList.add('search-ancestor');
+        if(row)row.classList.remove('search-hit');
+      }
+      // Авто-раскрыть ancestors
+      if(!hitNodeIds[n.id]&&n.childIds.length>0){
+        // это ancestor — раскрыть
+        var chEl=document.getElementById(n.id+'_ch');
+        if(chEl)chEl.className='children open';
+        var arr=n.el.querySelector('.arrow');
+        if(arr){arr.textContent='▼';arr.className='arrow open'}
+        n.expanded=true;
+        if(!n.loaded){n.loaded=true;loadChildrenDOM(n,chEl)}
+      }
+    }else{
+      n.el.classList.add('hidden');
+    }
+  });
+
+  infoEl.innerHTML='Found <b>'+hitCount+'</b> direct matches, <b>'+deepHitCount+'</b> deep matches, <b>'+totalVisible+'</b> nodes visible for "<b>'+esc(q)+'</b>"';
+}
+
+// ═══════════════════════════════════════
+// MAIN SCAN
+// ═══════════════════════════════════════
+function scan(){
+  clog('Starting scan...','i');
+  var treeEl=document.getElementById('tree');
+  treeEl.innerHTML='';
+  allNodes=[];nodeMap={};nodeIdCtr=0;
+
+  var allProps={};
+  try{for(var k in window)allProps[k]=true}catch(e){}
+  try{Object.getOwnPropertyNames(window).forEach(function(k){allProps[k]=true})}catch(e){}
+  var propNames=Object.keys(allProps);
+
+  var candidates=[];
+  propNames.forEach(function(name){
+    if(/^\d+$/.test(name))return;
+    if(/^on[a-z]/.test(name))return;
+    if(STD_SET[name])return;
+
+    var val;try{val=window[name]}catch(e){return}
+    if(val===null||val===undefined)return;
+    var t=typeof val;
+    if(t==='number'||t==='boolean'||t==='string'||t==='symbol'||t==='bigint')return;
+
+    // Skip standard constructors without keywords
+    if(t==='function'&&/^[A-Z]/.test(name)){
+      var low=name.toLowerCase(),hasKw=false;
+      BRIDGE_KW.forEach(function(kw){if(low.indexOf(kw)!==-1)hasKw=true});
+      IFACE_KW.forEach(function(kw){if(low.indexOf(kw)!==-1)hasKw=true});
+      if(!hasKw)return;
+    }
+
+    var s=scoreProp(name,val);
+    candidates.push({name:name,val:val,score:s.score,tags:s.tags,reasons:s.reasons});
+  });
+
+  // Sort: iface keyword first, then score
+  candidates.sort(function(a,b){
+    var aIface=hasIfaceKeyword(a.name)?1:0;
+    var bIface=hasIfaceKeyword(b.name)?1:0;
+    if(aIface!==bIface)return bIface-aIface;
+    return b.score-a.score;
+  });
+
+  // iOS
+  try{
+    if(window.webkit&&window.webkit.messageHandlers){
+      var iosNode=registerNode('webkit',window.webkit,'window',null);
+      var iosDom=buildNodeDOM(iosNode,50,[{text:'iOS WKWebView',cls:'h-java'}]);
+      treeEl.appendChild(iosDom);
+    }
+  }catch(e){}
+
+  // Stats
+  var highC=candidates.filter(function(c){return c.score>=30}).length;
+  var midC=candidates.filter(function(c){return c.score>=10&&c.score<30}).length;
+  var ifaceC=candidates.filter(function(c){return hasIfaceKeyword(c.name)}).length;
+  document.getElementById('stats').innerHTML=
+    '<div class="stat">Total: <b>'+propNames.length+'</b></div>'+
+    '<div class="stat">Candidates: <b>'+candidates.length+'</b></div>'+
+    '<div class="stat"'+(ifaceC?' style="border-color:#ff0"':'')+'>⚡Iface: <b style="color:#ff0">'+ifaceC+'</b></div>'+
+    '<div class="stat"'+(highC?' style="border-color:#f44"':'')+'>🔴High: <b style="color:#f88">'+highC+'</b></div>'+
+    '<div class="stat">🟡Med: <b style="color:#fa0">'+midC+'</b></div>'+
+    '<div class="stat">iframe: <b>'+(window!==window.top)+'</b></div>'+
+    '<div class="stat" style="font-size:10px">'+esc(location.origin)+'</div>';
+
+  if(candidates.length===0){
+    treeEl.innerHTML+='<div style="color:#666;padding:10px">No non-standard objects found.</div>';
+  }else{
+    candidates.forEach(function(c){
+      var node=registerNode(c.name,c.val,'window',null);
+      var dom=buildNodeDOM(node,c.score,c.tags);
+      treeEl.appendChild(dom);
+    });
+  }
+
+  clog('Scan done. '+candidates.length+' candidates, '+highC+' high, '+ifaceC+' iface-keyword','s');
+}
+
+// ═══════════════════════════════════════
+// RUN
+// ═══════════════════════════════════════
+if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',scan)}else{scan()}
+setTimeout(scan,3000);
+
+})();
+</script>
+</body>
+</html>
