@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebView Bridge Inspector</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0a0e17;
+            color: #c0c8d8;
+            padding: 16px;
+            font-size: 14px;
+        }
+
+        h1 {
+            color: #00ff88;
+            font-size: 18px;
+            margin-bottom: 12px;
+            border-bottom: 1px solid #1a2235;
+            padding-bottom: 8px;
+        }
+
+        .section {
+            background: #111827;
+            border: 1px solid #1e2d45;
+            border-radius: 8px;
+            padding: 14px;
+            margin-bottom: 14px;
+        }
+
+        .section-title {
+            color: #60a5fa;
+            font-size: 15px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .status-line {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid #1a2235;
+        }
+
+        .status-key {
+            color: #94a3b8;
+        }
+
+        .status-value {
+            font-weight: bold;
+        }
+
+        .found { color: #00ff88; }
+        .not-found { color: #ff4444; }
+        .type-function { color: #fbbf24; }
+        .type-other { color: #a78bfa; }
+
+        .method-card {
+            background: #0d1320;
+            border: 1px solid #1e2d45;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+        }
+
+        .method-name {
+            color: #fbbf24;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .method-meta {
+            color: #64748b;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .method-result {
+            background: #1a0a2e;
+            border: 1px solid #2d1b69;
+            border-radius: 4px;
+            padding: 6px 8px;
+            margin-top: 6px;
+            font-size: 12px;
+            color: #c4b5fd;
+            word-break: break-all;
+        }
+
+        .call-btn {
+            background: #1e3a5f;
+            color: #60a5fa;
+            border: 1px solid #2563eb;
+            border-radius: 4px;
+            padding: 4px 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            cursor: pointer;
+            margin-top: 6px;
+        }
+
+        .call-btn:hover {
+            background: #2563eb;
+            color: #fff;
+        }
+
+        .raw-dump {
+            background: #0d1320;
+            border: 1px solid #1e2d45;
+            border-radius: 6px;
+            padding: 12px;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 300px;
+            overflow-y: auto;
+            color: #94a3b8;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+        .badge-func {
+            background: #422006;
+            color: #fbbf24;
+        }
+
+        .badge-prop {
+            background: #1e1b4b;
+            color: #a78bfa;
+        }
+
+        .badge-java {
+            background: #052e16;
+            color: #4ade80;
+        }
+
+        #log-output {
+            background: #0d1320;
+            border: 1px solid #1e2d45;
+            border-radius: 6px;
+            padding: 12px;
+            font-size: 11px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .log-entry {
+            padding: 2px 0;
+            border-bottom: 1px solid #111827;
+        }
+
+        .log-info { color: #60a5fa; }
+        .log-warn { color: #fbbf24; }
+        .log-error { color: #f87171; }
+        .log-success { color: #4ade80; }
+    </style>
+</head>
+<body>
+
+    <h1>🔍 WebView JS Interface Inspector</h1>
+
+    <!-- Секция 1: Статус существования -->
+    <div class="section" id="existence-section">
+        <div class="section-title">📡 Bridge Existence Check</div>
+        <div id="existence-info">Scanning...</div>
+    </div>
+
+    <!-- Секция 2: Информация об объекте -->
+    <div class="section" id="object-section">
+        <div class="section-title">🧬 Object Info</div>
+        <div id="object-info">Waiting...</div>
+    </div>
+
+    <!-- Секция 3: Методы -->
+    <div class="section" id="methods-section">
+        <div class="section-title">⚡ Discovered Methods</div>
+        <div id="methods-list">Waiting...</div>
+    </div>
+
+    <!-- Секция 4: Попытка вызова без аргументов -->
+    <div class="section" id="invoke-section">
+        <div class="section-title">🧪 Safe Invocation Probe (no-arg calls)</div>
+        <div id="invoke-results">Waiting...</div>
+    </div>
+
+    <!-- Секция 5: Сырой дамп -->
+    <div class="section">
+        <div class="section-title">📋 Raw Dump</div>
+        <div class="raw-dump" id="raw-dump">Waiting...</div>
+    </div>
+
+    <!-- Секция 6: Лог -->
+    <div class="section">
+        <div class="section-title">📝 Scan Log</div>
+        <div id="log-output"></div>
+    </div>
+
+<script>
+(function() {
+    'use strict';
+
+    const BRIDGE_NAME = 'nativeBridgeNativeWrapper';
+    const logs = [];
+
+    // ─────────── Утилиты ───────────
+
+    function log(msg, level) {
+        level = level || 'info';
+        const ts = new Date().toISOString().substr(11, 12);
+        logs.push({ ts, msg, level });
+        renderLog();
+    }
+
+    function renderLog() {
+        const el = document.getElementById('log-output');
+        el.innerHTML = logs.map(l =>
+            `<div class="log-entry log-${l.level}">[${l.ts}] ${escapeHtml(l.msg)}</div>`
+        ).join('');
+        el.scrollTop = el.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function safeStringify(val) {
+        try {
+            if (val === undefined) return 'undefined';
+            if (val === null) return 'null';
+            if (typeof val === 'function') return '[Function]';
+            return JSON.stringify(val, null, 2);
+        } catch(e) {
+            return String(val);
+        }
+    }
+
+    // ─────────── 1. Проверка существования ───────────
+
+    function checkExistence() {
+        const el = document.getElementById('existence-info');
+        let html = '';
+
+        const checks = [
+            {
+                label: `window.${BRIDGE_NAME}`,
+                test: () => window[BRIDGE_NAME]
+            },
+            {
+                label: `typeof window.${BRIDGE_NAME}`,
+                test: () => typeof window[BRIDGE_NAME]
+            },
+            {
+                label: `"${BRIDGE_NAME}" in window`,
+                test: () => BRIDGE_NAME in window
+            },
+            {
+                label: `window.hasOwnProperty("${BRIDGE_NAME}")`,
+                test: () => window.hasOwnProperty(BRIDGE_NAME)
+            },
+            // Проверяем также популярные альтернативные имена
+            {
+                label: 'window.Android',
+                test: () => typeof window.Android
+            },
+            {
+                label: 'window.AndroidBridge',
+                test: () => typeof window.AndroidBridge
+            },
+            {
+                label: 'window.webkit?.messageHandlers',
+                test: () => {
+                    try { return typeof window.webkit?.messageHandlers; }
+                    catch(e) { return 'error: ' + e.message; }
+                }
+            }
+        ];
+
+        checks.forEach(c => {
+            let result;
+            try {
+                result = c.test();
+            } catch(e) {
+                result = 'ERROR: ' + e.message;
+            }
+
+            const exists = result && result !== 'undefined' && result !== false;
+            const cls = exists ? 'found' : 'not-found';
+            const icon = exists ? '✅' : '❌';
+
+            html += `
+                <div class="status-line">
+                    <span class="status-key">${icon} ${escapeHtml(c.label)}</span>
+                    <span class="status-value ${cls}">${escapeHtml(String(result))}</span>
+                </div>
+            `;
+        });
+
+        // Iframe context info
+        html += `
+            <div class="status-line">
+                <span class="status-key">📍 iframe origin</span>
+                <span class="status-value" style="color:#60a5fa">${escapeHtml(window.location.origin)}</span>
+            </div>
+            <div class="status-line">
+                <span class="status-key">📍 iframe URL</span>
+                <span class="status-value" style="color:#60a5fa;font-size:11px">${escapeHtml(window.location.href)}</span>
+            </div>
+        `;
+
+        el.innerHTML = html;
+
+        const bridgeExists = !!window[BRIDGE_NAME];
+        log(`Bridge "${BRIDGE_NAME}" exists: ${bridgeExists}`, bridgeExists ? 'success' : 'error');
+        return bridgeExists;
+    }
+
+    // ─────────── 2. Информация об объекте ───────────
+
+    function inspectObject() {
+        const el = document.getElementById('object-info');
+        const bridge = window[BRIDGE_NAME];
+
+        if (!bridge) {
+            el.innerHTML = '<span class="not-found">Bridge not found — skipping</span>';
+            return null;
+        }
+
+        const info = {};
+
+        try { info['typeof'] = typeof bridge; } catch(e) { info['typeof'] = 'error'; }
+        try { info['constructor.name'] = bridge.constructor?.name || 'N/A'; } catch(e) { info['constructor.name'] = 'error'; }
+        try { info['toString()'] = bridge.toString(); } catch(e) { info['toString()'] = 'error: ' + e.message; }
+        try { info['JSON.stringify'] = JSON.stringify(bridge); } catch(e) { info['JSON.stringify'] = 'error: ' + e.message; }
+        try { info['Object.keys()'] = JSON.stringify(Object.keys(bridge)); } catch(e) { info['Object.keys()'] = 'error: ' + e.message; }
+        try { info['Object.getOwnPropertyNames()'] = JSON.stringify(Object.getOwnPropertyNames(bridge)); } catch(e) { info['Object.getOwnPropertyNames()'] = 'error: ' + e.message; }
+        try {
+            const proto = Object.getPrototypeOf(bridge);
+            info['prototype'] = proto ? Object.getOwnPropertyNames(proto).join(', ') : 'null';
+        } catch(e) { info['prototype'] = 'error: ' + e.message; }
+
+        let html = '';
+        for (const [key, val] of Object.entries(info)) {
+            html += `
+                <div class="status-line">
+                    <span class="status-key">${escapeHtml(key)}</span>
+                    <span class="status-value" style="color:#e2e8f0;font-size:12px">${escapeHtml(String(val))}</span>
+                </div>
+            `;
+        }
+
+        el.innerHTML = html;
+        log(`Object type: ${info['typeof']}, constructor: ${info['constructor.name']}`, 'info');
+        return bridge;
+    }
+
+    // ─────────── 3. Обнаружение методов ───────────
+
+    function discoverMethods() {
+        const el = document.getElementById('methods-list');
+        const bridge = window[BRIDGE_NAME];
+
+        if (!bridge) {
+            el.innerHTML = '<span class="not-found">Bridge not found — skipping</span>';
+            return [];
+        }
+
+        const methods = [];
+        const seen = new Set();
+
+        // Способ 1: for...in (включает унаследованные)
+        try {
+            for (let key in bridge) {
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    methods.push({ name: key, source: 'for..in' });
+                }
+            }
+            log(`for..in found ${seen.size} properties`, 'info');
+        } catch(e) {
+            log(`for..in error: ${e.message}`, 'error');
+        }
+
+        // Способ 2: Object.getOwnPropertyNames
+        try {
+            const ownProps = Object.getOwnPropertyNames(bridge);
+            ownProps.forEach(key => {
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    methods.push({ name: key, source: 'getOwnPropertyNames' });
+                }
+            });
+            log(`getOwnPropertyNames found ${ownProps.length} own properties`, 'info');
+        } catch(e) {
+            log(`getOwnPropertyNames error: ${e.message}`, 'error');
+        }
+
+        // Способ 3: Prototype chain
+        try {
+            let proto = Object.getPrototypeOf(bridge);
+            let depth = 0;
+            while (proto && depth < 5) {
+                const protoProps = Object.getOwnPropertyNames(proto);
+                protoProps.forEach(key => {
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        methods.push({ name: key, source: `prototype[${depth}]` });
+                    }
+                });
+                proto = Object.getPrototypeOf(proto);
+                depth++;
+            }
+        } catch(e) {
+            log(`Prototype walk error: ${e.message}`, 'error');
+        }
+
+        // Способ 4: Object.keys
+        try {
+            Object.keys(bridge).forEach(key => {
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    methods.push({ name: key, source: 'Object.keys' });
+                }
+            });
+        } catch(e) {}
+
+        // Обогащаем информацией о типах
+        methods.forEach(m => {
+            try {
+                m.type = typeof bridge[m.name];
+            } catch(e) {
+                m.type = 'unknown';
+            }
+
+            try {
+                if (m.type === 'function') {
+                    m.arity = bridge[m.name].length;
+                    m.fnString = bridge[m.name].toString().substring(0, 200);
+                }
+            } catch(e) {
+                m.arity = '?';
+                m.fnString = 'N/A';
+            }
+        });
+
+        // Рендер
+        if (methods.length === 0) {
+            el.innerHTML = '<span class="not-found">No methods discovered (bridge may use opaque native binding)</span>';
+            log('No methods found', 'warn');
+            return methods;
+        }
+
+        // Сортируем: функции сверху
+        methods.sort((a, b) => {
+            if (a.type === 'function' && b.type !== 'function') return -1;
+            if (a.type !== 'function' && b.type === 'function') return 1;
+            return a.name.localeCompare(b.name);
+        });
+
+        let html = '';
+        methods.forEach((m, idx) => {
+            const badgeClass = m.type === 'function' ? 'badge-func' : 'badge-prop';
+            const badgeText = m.type === 'function' ? `function(${m.arity} args)` : m.type;
+
+            html += `
+                <div class="method-card">
+                    <div>
+                        <span class="method-name">${escapeHtml(m.name)}</span>
+                        <span class="badge ${badgeClass}">${badgeText}</span>
+                        <span class="badge badge-java">${escapeHtml(m.source)}</span>
+                    </div>
+                    ${m.fnString ? `<div class="method-meta">toString: ${escapeHtml(m.fnString)}</div>` : ''}
+                    <div id="invoke-result-${idx}"></div>
+                    ${m.type === 'function' ? `
+                        <button class="call-btn" onclick="probeMethod(${idx})">
+                            ▶ Try call ${escapeHtml(m.name)}()
+                        </button>
+                    ` : ''}
+                </div>
+            `;
+        });
+
+        el.innerHTML = html;
+        log(`Total discovered: ${methods.length} (${methods.filter(m=>m.type==='function').length} functions)`, 'success');
+
+        // Сохраняем глобально для кнопок
+        window.__discoveredMethods = methods;
+        return methods;
+    }
+
+    // ─────────── 4. Безопасный probe (вызов без аргументов) ───────────
+
+    function safeProbeAllGetters() {
+        const el = document.getElementById('invoke-results');
+        const bridge = window[BRIDGE_NAME];
+
+        if (!bridge) {
+            el.innerHTML = '<span class="not-found">Bridge not found — skipping</span>';
+            return;
+        }
+
+        const methods = window.__discoveredMethods || [];
+        const getterCandidates = methods.filter(m =>
+            m.type === 'function' &&
+            (m.arity === 0 || m.arity === '?') &&
+            /^(get|is|has|check|fetch|load|current|read)/i.test(m.name)
+        );
+
+        if (getterCandidates.length === 0) {
+            el.innerHTML = '<span style="color:#94a3b8">No safe getter-like methods found to auto-probe.</span>';
+            return;
+        }
+
+        let html = '';
+        getterCandidates.forEach(m => {
+            let result, error;
+            try {
+                result = bridge[m.name]();
+            } catch(e) {
+                error = e.message;
+            }
+
+            html += `
+                <div class="method-card">
+                    <span class="method-name">${escapeHtml(m.name)}()</span>
+                    <div class="method-result">
+                        ${error
+                            ? `<span class="not-found">ERROR: ${escapeHtml(error)}</span>`
+                            : `<span class="found">Result: ${escapeHtml(safeStringify(result))}</span>`
+                        }
+                    </div>
+                </div>
+            `;
+            log(`Probe ${m.name}(): ${error ? 'ERROR ' + error : safeStringify(result).substring(0, 100)}`,
+                error ? 'warn' : 'success');
+        });
+
+        el.innerHTML = html;
+    }
+
+    // ─────────── 5. Raw dump ───────────
+
+    function rawDump() {
+        const el = document.getElementById('raw-dump');
+        const bridge = window[BRIDGE_NAME];
+
+        if (!bridge) {
+            el.textContent = `window.${BRIDGE_NAME} is ${typeof bridge}`;
+            return;
+        }
+
+        const lines = [];
+        lines.push(`=== RAW DUMP: window.${BRIDGE_NAME} ===`);
+        lines.push(`typeof: ${typeof bridge}`);
+        lines.push('');
+
+        try {
+            lines.push('--- for...in enumeration ---');
+            for (let key in bridge) {
+                let typeStr;
+                try { typeStr = typeof bridge[key]; } catch(e) { typeStr = 'error'; }
+                lines.push(`  ${key} : ${typeStr}`);
+            }
+        } catch(e) {
+            lines.push(`for...in error: ${e.message}`);
+        }
+
+        lines.push('');
+
+        try {
+            lines.push('--- Object.getOwnPropertyNames ---');
+            Object.getOwnPropertyNames(bridge).forEach(key => {
+                let typeStr;
+                try { typeStr = typeof bridge[key]; } catch(e) { typeStr = 'error'; }
+                lines.push(`  ${key} : ${typeStr}`);
+            });
+        } catch(e) {
+            lines.push(`getOwnPropertyNames error: ${e.message}`);
+        }
+
+        lines.push('');
+
+        try {
+            lines.push('--- Prototype chain ---');
+            let proto = Object.getPrototypeOf(bridge);
+            let depth = 0;
+            while (proto && depth < 5) {
+                lines.push(`  [proto ${depth}]: ${Object.getOwnPropertyNames(proto).join(', ')}`);
+                proto = Object.getPrototypeOf(proto);
+                depth++;
+            }
+        } catch(e) {
+            lines.push(`Prototype error: ${e.message}`);
+        }
+
+        el.textContent = lines.join('\n');
+    }
+
+    // ─────────── Кнопка вызова метода ───────────
+
+    window.probeMethod = function(idx) {
+        const methods = window.__discoveredMethods || [];
+        const m = methods[idx];
+        if (!m) return;
+
+        const bridge = window[BRIDGE_NAME];
+        const resultEl = document.getElementById(`invoke-result-${idx}`);
+
+        let result, error;
+        try {
+            result = bridge[m.name]();
+        } catch(e) {
+            error = e.message;
+        }
+
+        resultEl.innerHTML = `
+            <div class="method-result">
+                ${error
+                    ? `<span class="not-found">ERROR: ${escapeHtml(error)}</span>`
+                    : `<span class="found">Result: ${escapeHtml(safeStringify(result))}</span>`
+                }
+            </div>
+        `;
+        log(`Manual call ${m.name}(): ${error ? 'ERROR ' + error : safeStringify(result).substring(0, 100)}`,
+            error ? 'warn' : 'success');
+    };
+
+    // ─────────── Запуск ───────────
+
+    function run() {
+        log('Starting WebView Bridge Inspector...', 'info');
+        log(`Target bridge: window.${BRIDGE_NAME}`, 'info');
+        log(`Running inside iframe: ${window !== window.top}`, 'info');
+        log(`Current origin: ${window.location.origin}`, 'info');
+
+        const exists = checkExistence();
+        inspectObject();
+        discoverMethods();
+        safeProbeAllGetters();
+        rawDump();
+
+        log('Scan complete.', exists ? 'success' : 'warn');
+    }
+
+    // Запускаем при загрузке
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', run);
+    } else {
+        run();
+    }
+
+    // Повторный скан через 2 секунды (на случай если bridge инжектится с задержкой)
+    setTimeout(() => {
+        if (!window[BRIDGE_NAME]) {
+            log('Re-scanning (delayed injection check)...', 'warn');
+            run();
+        }
+    }, 2000);
+
+})();
+</script>
+
+</body>
+</html>
