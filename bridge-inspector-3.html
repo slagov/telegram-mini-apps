@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bridge Explorer</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Courier New',monospace;background:#080810;color:#b0b8c8;padding:8px;font-size:12px;-webkit-text-size-adjust:100%}
+
+/* Console */
+#console-bar{position:fixed;bottom:0;left:0;right:0;background:#0a0a18;border-top:2px solid #2563eb;padding:6px;z-index:9999;display:flex;gap:4px}
+#console-bar input{flex:1;background:#111;color:#0f0;border:1px solid #333;border-radius:4px;padding:6px 8px;font-family:monospace;font-size:13px}
+#console-bar button{background:#1e3a5f;color:#6af;border:1px solid #2563eb;border-radius:4px;padding:6px 12px;font-family:monospace;font-size:12px}
+#console-output{position:fixed;bottom:42px;left:0;right:0;max-height:35vh;overflow-y:auto;background:#0a0a14;border-top:1px solid #222;padding:6px;z-index:9998;font-size:11px;display:none}
+#console-output.open{display:block}
+.con-line{padding:2px 0;border-bottom:1px solid #111;word-break:break-all}
+.con-i{color:#6af}.con-s{color:#4f8}.con-e{color:#f66}.con-w{color:#fa0}
+
+/* Main */
+h1{color:#0f0;font-size:15px;margin-bottom:8px}
+.stats{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.stat{background:#111;border:1px solid #222;border-radius:4px;padding:6px 10px;font-size:11px}
+.stat b{color:#6af}
+
+/* Tree node */
+.node{margin-left:12px;border-left:1px solid #1a2030}
+.node-root{margin-left:0;border-left:none}
+.row{display:flex;align-items:flex-start;padding:4px 6px;border-bottom:1px solid #0d0d18;cursor:pointer;gap:6px;min-height:28px;flex-wrap:wrap}
+.row:hover{background:#0f1525}
+.row:active{background:#141e35}
+.arrow{width:16px;color:#445;flex-shrink:0;text-align:center;font-size:14px;user-select:none;line-height:20px}
+.arrow.open{color:#6af}
+.key{color:#f0c060;font-weight:bold;word-break:break-all;flex-shrink:0;max-width:50%}
+.type-tag{font-size:10px;padding:1px 5px;border-radius:3px;flex-shrink:0}
+.t-function{background:#1a2800;color:#af0}
+.t-object{background:#001828;color:#4af}
+.t-string{background:#281800;color:#fa4}
+.t-number{background:#180028;color:#a4f}
+.t-boolean{background:#002818;color:#4fa}
+.t-other{background:#181818;color:#888}
+.t-java{background:#300;color:#f88}
+.val-preview{color:#667;font-size:11px;word-break:break-all;flex:1;min-width:0}
+.score-badge{font-size:10px;padding:1px 5px;border-radius:3px;background:#300;color:#f88;flex-shrink:0}
+.children{display:none}
+.children.open{display:block}
+
+/* Invoke panel */
+.invoke-panel{background:#0a0a1a;border:1px solid #1a2040;border-radius:4px;margin:4px 0 4px 22px;padding:8px}
+.invoke-panel input{background:#111;color:#ccc;border:1px solid #333;border-radius:3px;padding:4px 6px;font-family:monospace;font-size:12px;width:100%;margin:3px 0}
+.invoke-panel .args-hint{color:#556;font-size:10px}
+.invoke-btn{background:#1a3a1a;color:#4f8;border:1px solid #2a5;border-radius:3px;padding:4px 12px;font-family:monospace;font-size:11px;cursor:pointer;margin-top:4px;margin-right:4px}
+.invoke-btn:active{background:#2a5;color:#fff}
+.invoke-btn.danger{background:#3a1a1a;color:#f88;border-color:#a33}
+.result-box{background:#0a0018;border:1px solid #252;border-radius:3px;padding:6px;margin-top:6px;font-size:11px;word-break:break-all;max-height:200px;overflow:auto}
+.res-ok{color:#4f8}.res-err{color:#f66}
+
+/* Section */
+.section{background:#0d0d18;border:1px solid #1a2030;border-radius:6px;padding:10px;margin-bottom:10px}
+.section-title{color:#6af;font-size:13px;font-weight:bold;margin-bottom:6px;cursor:pointer}
+
+/* Search */
+#search{background:#111;color:#ccc;border:1px solid #333;border-radius:4px;padding:6px 8px;font-family:monospace;font-size:12px;width:100%;margin-bottom:8px}
+
+body{padding-bottom:50px}
+</style>
+</head>
+<body>
+
+<h1>🔍 Bridge Explorer v3</h1>
+
+<input id="search" placeholder="Filter properties... (e.g. 'bridge', 'native', 'token')" oninput="filterNodes(this.value)">
+
+<div class="stats" id="stats"></div>
+
+<div class="section">
+  <div class="section-title">🌳 Interactive Object Explorer</div>
+  <div id="tree"></div>
+</div>
+
+<div id="console-output"></div>
+<div id="console-bar">
+  <input id="console-input" placeholder="JS eval: e.g. window.android.getToken()" onkeydown="if(event.key==='Enter')runConsole()">
+  <button onclick="runConsole()">▶</button>
+  <button onclick="toggleConsole()">📋</button>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════
+// CONSOLE
+// ═══════════════════════════════════════
+var conLines = [];
+var conEl = document.getElementById('console-output');
+
+function clog(msg, level) {
+  level = level || 'i';
+  conLines.push({msg:String(msg), level:level});
+  if (conLines.length > 500) conLines.shift();
+  renderConsole();
+}
+
+function renderConsole() {
+  conEl.innerHTML = conLines.map(function(l){
+    return '<div class="con-line con-'+l.level+'">'+esc(l.msg)+'</div>';
+  }).join('');
+  conEl.scrollTop = conEl.scrollHeight;
+}
+
+window.toggleConsole = function() {
+  conEl.classList.toggle('open');
+};
+
+window.runConsole = function() {
+  var input = document.getElementById('console-input');
+  var code = input.value.trim();
+  if (!code) return;
+  clog('> ' + code, 'w');
+  try {
+    var result = eval(code);
+    clog(safeStr(result, 500), 's');
+  } catch(e) {
+    clog('ERROR: ' + e.message, 'e');
+  }
+  input.value = '';
+};
+
+// ═══════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function safeStr(v, maxLen) {
+  maxLen = maxLen || 150;
+  try {
+    if (v === undefined) return 'undefined';
+    if (v === null) return 'null';
+    if (typeof v === 'function') return 'function('+v.length+')';
+    if (typeof v === 'object') {
+      var s = JSON.stringify(v);
+      return s.length > maxLen ? s.substring(0, maxLen) + '…' : s;
+    }
+    var r = String(v);
+    return r.length > maxLen ? r.substring(0, maxLen) + '…' : r;
+  } catch(e) {
+    try { return String(v).substring(0, maxLen); } catch(e2) { return '[cannot stringify]'; }
+  }
+}
+
+function typeTag(t) {
+  var cls = 'other';
+  if (t === 'function') cls = 'function';
+  else if (t === 'object') cls = 'object';
+  else if (t === 'string') cls = 'string';
+  else if (t === 'number') cls = 'number';
+  else if (t === 'boolean') cls = 'boolean';
+  return '<span class="type-tag t-'+cls+'">'+esc(t)+'</span>';
+}
+
+// Check if Java object
+function isJavaObject(obj) {
+  try { return obj && typeof obj.getClass === 'function'; } catch(e) { return false; }
+}
+
+function getJavaClass(obj) {
+  try { return obj.getClass().getName(); } catch(e) { return null; }
+}
+
+// ═══════════════════════════════════════
+// GET ALL MEMBERS OF AN OBJECT
+// ═══════════════════════════════════════
+function getMembers(obj) {
+  var members = [];
+  var seen = {};
+
+  function add(key, src) {
+    if (seen[key]) return;
+    seen[key] = true;
+    var info = {key:key, source:src, type:'unknown', value:null, error:null, arity:null, isJava:false, javaClass:null};
+    try {
+      info.type = typeof obj[key];
+      info.value = obj[key];
+    } catch(e) {
+      info.error = e.message;
+      info.type = 'inaccessible';
+    }
+    if (info.type === 'function') {
+      try { info.arity = obj[key].length; } catch(e){}
+    }
+    if (info.value && typeof info.value === 'object') {
+      info.isJava = isJavaObject(info.value);
+      if (info.isJava) info.javaClass = getJavaClass(info.value);
+    }
+    members.push(info);
+  }
+
+  try { for (var k in obj) add(k, 'enum'); } catch(e){}
+  try { Object.getOwnPropertyNames(obj).forEach(function(k){ add(k, 'own'); }); } catch(e){}
+  try {
+    var p = Object.getPrototypeOf(obj);
+    var d = 0;
+    while (p && p !== Object.prototype && d < 3) {
+      try { Object.getOwnPropertyNames(p).forEach(function(k){ add(k, 'proto'); }); } catch(e){}
+      p = Object.getPrototypeOf(p);
+      d++;
+    }
+  } catch(e){}
+
+  // Сортировка: функции первые, потом объекты, потом остальное
+  members.sort(function(a, b) {
+    var order = {function:0, object:1};
+    var oa = order[a.type] !== undefined ? order[a.type] : 2;
+    var ob = order[b.type] !== undefined ? order[b.type] : 2;
+    if (oa !== ob) return oa - ob;
+    return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+  });
+
+  return members;
+}
+
+// ═══════════════════════════════════════
+// SCORING (для window-level свойств)
+// ═══════════════════════════════════════
+var KEYWORDS = ['bridge','native','android','ios','app','mobile','webview','jsbridge','interface','handler',
+  'hybrid','cordova','capacitor','flutter','invoke','wrapper','proxy','sdk','channel','yandex','lavka',
+  'taxi','vk','telegram','wechat','device','client','injected','exposed','dispatch','message'];
+
+function scoreProp(name, val) {
+  var score = 0;
+  var low = name.toLowerCase();
+  KEYWORDS.forEach(function(kw){ if (low.indexOf(kw) !== -1) score += 15; });
+  if (typeof val === 'object' && val !== null) {
+    score += 5;
+    var fc = 0;
+    try { for (var k in val) { if (typeof val[k] === 'function') fc++; } } catch(e){}
+    if (fc > 0) score += 10 + Math.min(fc * 3, 30);
+  }
+  if (isJavaObject(val)) score += 50;
+  try {
+    var ts = val && val.toString ? val.toString() : '';
+    if (/^[a-z]+\.[a-z]+\.\w+@/i.test(ts)) score += 35;
+    else if (ts.indexOf('@') > 0 && ts.length < 100) score += 15;
+  } catch(e){}
+  try { if (val instanceof HTMLElement || val instanceof Node) score -= 50; } catch(e){}
+  try { if (val instanceof Event || val instanceof Error) score -= 30; } catch(e){}
+  return score;
+}
+
+// ═══════════════════════════════════════
+// BUILD INTERACTIVE TREE NODE
+// ═══════════════════════════════════════
+var nodeIdCounter = 0;
+var allNodeEls = [];  // для фильтрации
+
+function createNode(key, obj, parentPath, score) {
+  var id = 'n' + (nodeIdCounter++);
+  var path = parentPath ? parentPath + '.' + key : key;
+  var t = 'unknown';
+  var preview = '';
+  var isJ = false;
+  var jClass = null;
+  var expandable = false;
+  var arity = null;
+
+  try { t = typeof obj; } catch(e) { t = 'inaccessible'; }
+
+  if (t === 'function') {
+    try { arity = obj.length; } catch(e){}
+    preview = 'function(' + (arity !== null ? arity : '?') + ')';
+    expandable = true; // функции тоже можно раскрыть — у них есть свойства
+  } else if (t === 'object' && obj !== null) {
+    isJ = isJavaObject(obj);
+    if (isJ) jClass = getJavaClass(obj);
+    preview = isJ ? (jClass || '[Java Object]') : safeStr(obj, 80);
+    expandable = true;
+  } else {
+    try { preview = safeStr(obj, 120); } catch(e) { preview = '?'; }
+  }
+
+  var container = document.createElement('div');
+  container.className = 'node' + (parentPath ? '' : ' node-root');
+  container.dataset.key = key.toLowerCase();
+  container.dataset.path = path.toLowerCase();
+  container.dataset.id = id;
+
+  // Row
+  var row = document.createElement('div');
+  row.className = 'row';
+
+  // Arrow
+  var arrow = document.createElement('span');
+  arrow.className = 'arrow';
+  arrow.textContent = expandable ? '▶' : '·';
+
+  // Key
+  var keyEl = document.createElement('span');
+  keyEl.className = 'key';
+  keyEl.textContent = key;
+
+  // Type tag
+  var tagHtml = typeTag(t);
+  if (isJ) tagHtml += ' <span class="type-tag t-java">JAVA' + (jClass ? ':' + jClass.split('.').pop() : '') + '</span>';
+  if (score !== undefined && score > 0) tagHtml += ' <span class="score-badge">⚡' + score + '</span>';
+  if (arity !== null) tagHtml += ' <span class="type-tag t-function">' + arity + ' args</span>';
+
+  var metaEl = document.createElement('span');
+  metaEl.innerHTML = tagHtml;
+
+  // Value preview
+  var valEl = document.createElement('span');
+  valEl.className = 'val-preview';
+  valEl.textContent = preview;
+
+  row.appendChild(arrow);
+  row.appendChild(keyEl);
+  row.appendChild(metaEl);
+  row.appendChild(valEl);
+
+  // Children container
+  var children = document.createElement('div');
+  children.className = 'children';
+  children.id = id + '_children';
+
+  // Invoke panel (для функций)
+  var invokePanel = null;
+  if (t === 'function') {
+    invokePanel = document.createElement('div');
+    invokePanel.className = 'invoke-panel';
+    invokePanel.id = id + '_invoke';
+    invokePanel.style.display = 'none';
+
+    var argsLabel = document.createElement('div');
+    argsLabel.className = 'args-hint';
+    argsLabel.textContent = 'Arguments (one per line, JS expressions — strings in quotes):';
+
+    var argsInput = document.createElement('textarea');
+    argsInput.style.cssText = 'background:#111;color:#ccc;border:1px solid #333;border-radius:3px;padding:4px 6px;font-family:monospace;font-size:12px;width:100%;height:60px;resize:vertical';
+    argsInput.id = id + '_args';
+    argsInput.placeholder = 'e.g.:\n"hello"\n42\ntrue';
+
+    var callBtn = document.createElement('button');
+    callBtn.className = 'invoke-btn';
+    callBtn.textContent = '▶ Call ' + key + '()';
+
+    var callNoArgsBtn = document.createElement('button');
+    callNoArgsBtn.className = 'invoke-btn';
+    callNoArgsBtn.textContent = '▶ Call ()  no args';
+
+    var resultBox = document.createElement('div');
+    resultBox.className = 'result-box';
+    resultBox.id = id + '_result';
+    resultBox.style.display = 'none';
+
+    // Кнопка "expand result as object"
+    var expandResultBtn = document.createElement('button');
+    expandResultBtn.className = 'invoke-btn';
+    expandResultBtn.textContent = '🔍 Explore result';
+    expandResultBtn.id = id + '_expand_result';
+    expandResultBtn.style.display = 'none';
+
+    invokePanel.appendChild(argsLabel);
+    invokePanel.appendChild(argsInput);
+    invokePanel.appendChild(callBtn);
+    invokePanel.appendChild(callNoArgsBtn);
+    invokePanel.appendChild(resultBox);
+    invokePanel.appendChild(expandResultBtn);
+
+    // Контейнер для развёрнутого результата
+    var resultTree = document.createElement('div');
+    resultTree.id = id + '_result_tree';
+    invokePanel.appendChild(resultTree);
+
+    // Call with args
+    callBtn.onclick = function(e) {
+      e.stopPropagation();
+      doInvoke(obj, key, id, false);
+    };
+
+    // Call without args
+    callNoArgsBtn.onclick = function(e) {
+      e.stopPropagation();
+      doInvoke(obj, key, id, true);
+    };
+
+    // Explore result
+    expandResultBtn.onclick = function(e) {
+      e.stopPropagation();
+      var rt = document.getElementById(id + '_result_tree');
+      if (rt && window['__lastResult_' + id] !== undefined) {
+        rt.innerHTML = '';
+        var resultVal = window['__lastResult_' + id];
+        if (resultVal && (typeof resultVal === 'object' || typeof resultVal === 'function')) {
+          var members = getMembers(resultVal);
+          members.forEach(function(m) {
+            var childNode = createNode(m.key, m.value, path + '().' + m.key);
+            rt.appendChild(childNode);
+          });
+        } else {
+          rt.innerHTML = '<div style="color:#888;padding:4px">Not an object — nothing to explore</div>';
+        }
+      }
+    };
+  }
+
+  // Click handler
+  var expanded = false;
+  var loaded = false;
+
+  row.onclick = function(e) {
+    e.stopPropagation();
+
+    if (!expandable) return;
+
+    expanded = !expanded;
+    arrow.textContent = expanded ? '▼' : '▶';
+    arrow.className = expanded ? 'arrow open' : 'arrow';
+    children.className = expanded ? 'children open' : 'children';
+
+    if (invokePanel) {
+      invokePanel.style.display = expanded ? 'block' : 'none';
+    }
+
+    if (expanded && !loaded) {
+      loaded = true;
+      loadChildren(obj, children, path);
+    }
+  };
+
+  container.appendChild(row);
+  if (invokePanel) container.appendChild(invokePanel);
+  container.appendChild(children);
+
+  allNodeEls.push({el: container, key: key.toLowerCase(), path: path.toLowerCase()});
+
+  return container;
+}
+
+// ═══════════════════════════════════════
+// LOAD CHILDREN (lazy)
+// ═══════════════════════════════════════
+function loadChildren(obj, container, parentPath) {
+  if (obj === null || obj === undefined) {
+    container.innerHTML = '<div style="color:#555;padding:4px 10px">null/undefined</div>';
+    return;
+  }
+
+  try {
+    var members = getMembers(obj);
+
+    if (members.length === 0) {
+      container.innerHTML = '<div style="color:#555;padding:4px 10px">No enumerable members</div>';
+      return;
+    }
+
+    // Показываем счётчик
+    var countDiv = document.createElement('div');
+    countDiv.style.cssText = 'color:#445;font-size:10px;padding:2px 10px';
+    var fnCount = members.filter(function(m){return m.type==='function'}).length;
+    countDiv.textContent = members.length + ' members (' + fnCount + ' functions)';
+    container.appendChild(countDiv);
+
+    members.forEach(function(m) {
+      var childNode = createNode(m.key, m.value, parentPath);
+      container.appendChild(childNode);
+    });
+  } catch(e) {
+    container.innerHTML = '<div style="color:#f66;padding:4px 10px">Error enumerating: ' + esc(e.message) + '</div>';
+  }
+}
+
+// ═══════════════════════════════════════
+// INVOKE FUNCTION
+// ═══════════════════════════════════════
+function doInvoke(fn, name, nodeId, noArgs) {
+  var resultBox = document.getElementById(nodeId + '_result');
+  var expandBtn = document.getElementById(nodeId + '_expand_result');
+  resultBox.style.display = 'block';
+
+  var args = [];
+  if (!noArgs) {
+    var argsText = document.getElementById(nodeId + '_args').value.trim();
+    if (argsText) {
+      var lines = argsText.split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (line === '') continue;
+        try {
+          args.push(eval('(' + line + ')'));
+        } catch(e) {
+          resultBox.innerHTML = '<span class="res-err">❌ Arg parse error (line '+(i+1)+'): ' + esc(e.message) + '</span>';
+          return;
+        }
+      }
+    }
+  }
+
+  try {
+    var result;
+    if (args.length === 0) result = fn();
+    else if (args.length === 1) result = fn(args[0]);
+    else if (args.length === 2) result = fn(args[0], args[1]);
+    else if (args.length === 3) result = fn(args[0], args[1], args[2]);
+    else if (args.length === 4) result = fn(args[0], args[1], args[2], args[3]);
+    else result = fn.apply(null, args);
+
+    var display = safeStr(result, 1000);
+    var rType = typeof result;
+    var isJ = (rType === 'object' && result !== null) ? isJavaObject(result) : false;
+    var jc = isJ ? getJavaClass(result) : null;
+
+    var html = '<span class="res-ok">✅ [' + esc(rType) + '] ';
+    if (isJ) html += '<span class="type-tag t-java">JAVA:' + esc(jc || '?') + '</span> ';
+    html += esc(display) + '</span>';
+    resultBox.innerHTML = html;
+
+    // Сохраняем результат для explore
+    window['__lastResult_' + nodeId] = result;
+
+    if (result && (rType === 'object' || rType === 'function')) {
+      expandBtn.style.display = 'inline-block';
+    } else {
+      expandBtn.style.display = 'none';
+    }
+
+    clog('CALL ' + name + '(' + args.map(function(a){return safeStr(a,50)}).join(', ') + ') → ' + display.substring(0,200), 's');
+  } catch(e) {
+    resultBox.innerHTML = '<span class="res-err">❌ ' + esc(e.message) + '</span>';
+    window['__lastResult_' + nodeId] = undefined;
+    expandBtn.style.display = 'none';
+    clog('CALL ' + name + '() → ERROR: ' + e.message, 'e');
+  }
+}
+
+// ═══════════════════════════════════════
+// FILTER
+// ═══════════════════════════════════════
+window.filterNodes = function(query) {
+  var q = query.toLowerCase().trim();
+  allNodeEls.forEach(function(item) {
+    if (!q || item.key.indexOf(q) !== -1 || item.path.indexOf(q) !== -1) {
+      item.el.style.display = '';
+    } else {
+      item.el.style.display = 'none';
+    }
+  });
+};
+
+// ═══════════════════════════════════════
+// MAIN SCAN
+// ═══════════════════════════════════════
+function scan() {
+  clog('Starting scan...', 'i');
+
+  var treeEl = document.getElementById('tree');
+  treeEl.innerHTML = '';
+  allNodeEls = [];
+  nodeIdCounter = 0;
+
+  // Все свойства window
+  var allProps = {};
+  try { for (var k in window) allProps[k] = true; } catch(e){}
+  try { Object.getOwnPropertyNames(window).forEach(function(k){ allProps[k] = true; }); } catch(e){}
+  var propNames = Object.keys(allProps);
+
+  // Фильтрация: стандартные
+  var hardcoded = ('window,self,document,name,location,history,navigator,screen,localStorage,sessionStorage,' +
+    'console,performance,crypto,indexedDB,caches,cookieStore,customElements,external,origin,closed,' +
+    'frames,length,top,opener,parent,frameElement,innerWidth,innerHeight,outerWidth,outerHeight,' +
+    'devicePixelRatio,screenX,screenY,screenLeft,screenTop,scrollX,scrollY,pageXOffset,pageYOffset,' +
+    'visualViewport,locationbar,menubar,personalbar,scrollbars,statusbar,toolbar,status,isSecureContext,' +
+    'crossOriginIsolated,scheduler,alert,confirm,prompt,print,open,close,stop,focus,blur,scroll,' +
+    'scrollTo,scrollBy,moveTo,moveBy,resizeTo,resizeBy,getSelection,getComputedStyle,matchMedia,' +
+    'find,postMessage,requestAnimationFrame,cancelAnimationFrame,setTimeout,clearTimeout,setInterval,' +
+    'clearInterval,queueMicrotask,structuredClone,reportError,atob,btoa,fetch,createImageBitmap,' +
+    'eval,parseInt,parseFloat,isNaN,isFinite,decodeURI,decodeURIComponent,encodeURI,' +
+    'encodeURIComponent,escape,unescape,NaN,Infinity,undefined,globalThis,constructor,chrome,' +
+    'speechSynthesis,requestIdleCallback,cancelIdleCallback,webkitRequestAnimationFrame,' +
+    'webkitCancelAnimationFrame,TEMPORARY,PERSISTENT,clientInformation,styleMedia,onsearch,' +
+    'webkitRequestFileSystem,webkitResolveLocalFileSystemURL,openDatabase,Object,Function,Array,' +
+    'Number,Boolean,String,Symbol,BigInt,RegExp,Date,Promise,Proxy,Reflect,Map,Set,WeakMap,WeakSet,' +
+    'WeakRef,FinalizationRegistry,Error,TypeError,RangeError,ReferenceError,SyntaxError,URIError,' +
+    'EvalError,AggregateError,JSON,Math,Intl,ArrayBuffer,SharedArrayBuffer,DataView,Uint8Array,' +
+    'Int8Array,Uint16Array,Int16Array,Uint32Array,Int32Array,Float32Array,Float64Array,' +
+    'Uint8ClampedArray,BigInt64Array,BigUint64Array').split(',');
+  var stdSet = {};
+  hardcoded.forEach(function(s){ stdSet[s] = true; });
+
+  var candidates = [];
+  var totalNonStd = 0;
+
+  propNames.forEach(function(name) {
+    if (/^\d+$/.test(name)) return;
+    if (/^on[a-z]/.test(name)) return;
+    if (stdSet[name]) return;
+
+    var val;
+    try { val = window[name]; } catch(e) { return; }
+    if (val === null || val === undefined) return;
+    var t = typeof val;
+    if (t === 'number' || t === 'boolean' || t === 'string' || t === 'symbol' || t === 'bigint') return;
+
+    // Пропускаем стандартные конструкторы (функция с большой буквы, без keyword)
+    if (t === 'function' && /^[A-Z]/.test(name)) {
+      var low = name.toLowerCase();
+      var hasKw = false;
+      KEYWORDS.forEach(function(kw){ if (low.indexOf(kw) !== -1) hasKw = true; });
+      if (!hasKw) return;
+    }
+
+    totalNonStd++;
+    var s = scoreProp(name, val);
+    candidates.push({name:name, val:val, score:s});
+  });
+
+  // Сортируем по score
+  candidates.sort(function(a,b){ return b.score - a.score; });
+
+  // Stats
+  var highCount = candidates.filter(function(c){return c.score >= 30}).length;
+  var midCount = candidates.filter(function(c){return c.score >= 10 && c.score < 30}).length;
+  document.getElementById('stats').innerHTML =
+    '<div class="stat">Props scanned: <b>' + propNames.length + '</b></div>' +
+    '<div class="stat">Non-standard: <b>' + totalNonStd + '</b></div>' +
+    '<div class="stat"' + (highCount ? ' style="border-color:#f44"' : '') + '>🔴 High: <b style="color:#f88">' + highCount + '</b></div>' +
+    '<div class="stat">🟡 Medium: <b style="color:#fa0">' + midCount + '</b></div>' +
+    '<div class="stat">iframe: <b>' + (window !== window.top) + '</b></div>' +
+    '<div class="stat">origin: <b>' + esc(location.origin) + '</b></div>';
+
+  // Рендерим дерево
+  if (candidates.length === 0) {
+    treeEl.innerHTML = '<div style="color:#666;padding:10px">No non-standard objects found in window. Try re-scanning in 3 seconds...</div>';
+  } else {
+    candidates.forEach(function(c) {
+      var node = createNode(c.name, c.val, 'window', c.score);
+      treeEl.appendChild(node);
+    });
+  }
+
+  // iOS check
+  try {
+    if (window.webkit && window.webkit.messageHandlers) {
+      var iosNode = createNode('webkit', window.webkit, 'window', 50);
+      treeEl.insertBefore(iosNode, treeEl.firstChild);
+      clog('iOS webkit.messageHandlers found!', 's');
+    }
+  } catch(e){}
+
+  clog('Scan complete. ' + candidates.length + ' candidates (' + highCount + ' high)', highCount ? 's' : 'i');
+}
+
+// ═══════════════════════════════════════
+// RUN
+// ═══════════════════════════════════════
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', scan);
+} else {
+  scan();
+}
+
+// Re-scan delayed (bridge может инжектиться позже)
+setTimeout(scan, 3000);
+
+})();
+</script>
+</body>
+</html>
