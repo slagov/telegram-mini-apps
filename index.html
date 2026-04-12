@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Argon2id WASM Playground</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      margin: 0;
+      padding: 2rem 1rem;
+    }
+
+    .card {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 12px;
+      padding: 2rem 2.5rem;
+      max-width: 760px;
+      width: 100%;
+      box-shadow: 0 8px 32px rgba(0,0,0,.45);
+    }
+
+    h1 { color: #e94560; margin-top: 0; font-size: 1.55rem; }
+
+    /* ── Form grid ── */
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.9rem 1.2rem;
+      margin-bottom: 1.2rem;
+    }
+    .form-grid .full { grid-column: 1 / -1; }
+
+    label {
+      display: block;
+      font-size: 0.78rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.3rem;
+    }
+
+    input[type="text"],
+    input[type="number"] {
+      width: 100%;
+      background: #0f3460;
+      border: 1px solid #1a5a9a;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 0.95rem;
+      padding: 0.5rem 0.8rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    input:focus { border-color: #e94560; }
+
+    .hint {
+      font-size: 0.72rem;
+      color: #556;
+      margin-top: 0.25rem;
+    }
+
+    /* ── Button ── */
+    #hash-btn {
+      width: 100%;
+      background: #e94560;
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0.65rem;
+      margin-bottom: 1.4rem;
+      transition: background .2s, opacity .2s;
+    }
+    #hash-btn:hover:not(:disabled) { background: #c73652; }
+    #hash-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ── Output fields ── */
+    .field { margin-bottom: 1rem; }
+    .field-label {
+      font-size: 0.78rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.3rem;
+    }
+    .value {
+      background: #0f3460;
+      border-radius: 6px;
+      padding: 0.6rem 0.9rem;
+      font-family: monospace;
+      font-size: 0.88rem;
+      word-break: break-all;
+      min-height: 2.3rem;
+    }
+    .hash-value { color: #f0c040; }
+    .time-value { color: #6fcf97; font-size: 1rem; font-family: monospace; }
+
+    /* ── Status ── */
+    .status {
+      margin-top: 1rem;
+      padding: 0.65rem 1rem;
+      border-radius: 6px;
+      font-size: 0.88rem;
+    }
+    .status.idle    { background: #1e2a3a; color: #7ec8e3; }
+    .status.loading { background: #1a3a5c; color: #7ec8e3; }
+    .status.success { background: #1a3a2a; color: #6fcf97; }
+    .status.error   { background: #3a1a1a; color: #eb5757; }
+
+    .spinner {
+      display: inline-block;
+      width: .85em; height: .85em;
+      border: 2px solid #7ec8e3;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+      margin-right: .4em;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>🔐 Argon2id WASM Playground</h1>
+
+  <div class="form-grid">
+    <!-- Password / value -->
+    <div class="full">
+      <label for="f-pass">Value to hash</label>
+      <input id="f-pass" type="text" value="lagovsp@gmail.com" autocomplete="off" spellcheck="false" />
+    </div>
+
+    <!-- Salt -->
+    <div class="full">
+      <label for="f-salt">Salt (UTF-8 string, min 8 chars)</label>
+      <input id="f-salt" type="text" value="saltsalt" autocomplete="off" spellcheck="false" />
+      <div class="hint">Will be encoded to bytes via TextEncoder.</div>
+    </div>
+
+    <!-- t (iterations) -->
+    <div>
+      <label for="f-time">t — iterations</label>
+      <input id="f-time" type="number" value="2" min="1" max="100" />
+      <div class="hint">Higher = slower & stronger.</div>
+    </div>
+
+    <!-- m (memory KiB) -->
+    <div>
+      <label for="f-mem">m — memory (KiB)</label>
+      <input id="f-mem" type="number" value="65536" min="1024" max="1048576" step="1024" />
+      <div class="hint">65536 = 64 MiB.</div>
+    </div>
+
+    <!-- p (parallelism) -->
+    <div>
+      <label for="f-par">p — parallelism</label>
+      <input id="f-par" type="number" value="1" min="1" max="16" />
+      <div class="hint">WASM is single-threaded; p>1 is ignored.</div>
+    </div>
+
+    <!-- hashLen -->
+    <div>
+      <label for="f-len">Hash length (bytes)</label>
+      <input id="f-len" type="number" value="32" min="4" max="64" />
+    </div>
+  </div>
+
+  <button id="hash-btn">⚡ Compute Hash</button>
+
+  <div class="field">
+    <div class="field-label">Hash (hex)</div>
+    <div class="value hash-value" id="out-hex">—</div>
+  </div>
+
+  <div class="field">
+    <div class="field-label">Encoded (PHC string)</div>
+    <div class="value hash-value" id="out-encoded">—</div>
+  </div>
+
+  <div class="field">
+    <div class="field-label">⏱ Time to compute</div>
+    <div class="value time-value" id="out-time">—</div>
+  </div>
+
+  <div class="status idle" id="status">Ready — fill in the parameters and click "Compute Hash".</div>
+</div>
+
+<!-- argon2-browser bundled: WASM embedded as base64, sets window.argon2 -->
+<script src="https://cdn.jsdelivr.net/npm/argon2-browser@1.18.0/dist/argon2-bundled.min.js"></script>
+<script src="/argon2id-wasm-consumer.js"></script>
+</body>
+</html>
